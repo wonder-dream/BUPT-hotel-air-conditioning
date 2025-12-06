@@ -768,6 +768,18 @@ class ACScheduler:
                     logger.info(
                         f"[Scheduler] Time slice: Room {room_id} replaced room {victim_id}"
                     )
+                    
+                    # 修复：重置其他已到期但未能获得服务的等待对象的等待时间
+                    # 避免同优先级房间之间频繁轮换
+                    for other_room_id, other_wobj in expired:
+                        if other_room_id in self.wait_queue:
+                            # 重置等待时间，重新开始计时
+                            other_wobj.wait_start_time = datetime.now()
+                            other_wobj.waited_full_slice = False
+                            logger.info(
+                                f"[Scheduler] Reset wait time for room {other_room_id}"
+                            )
+                    
                     break
 
     def _check_target_reached(self):
