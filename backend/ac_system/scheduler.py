@@ -222,12 +222,26 @@ class ACServiceManager:
             self.room_states[room_id]["cost"] = float(service_obj.cost)
 
     def update_waiting_state(self, wait_obj: WaitingObject):
-        """更新等待中房间的状态（不改变温度，不计费）"""
+        """更新等待中房间的状态（回温，不计费）"""
         room_id = wait_obj.room_id
         if room_id in self.room_states:
-            self.room_states[room_id]["current_temp"] = wait_obj.current_temp
+        
+            # print(f"Updating waiting room {room_id} temperature...")
             self.room_states[room_id]["energy_consumed"] = wait_obj.energy_consumed
             self.room_states[room_id]["cost"] = float(wait_obj.cost)
+
+            state = self.room_states[room_id]
+            rate = config.TEMP_RESTORE_RATE / 60 * TIME_SCALE
+            current = state.get("current_temp", INITIAL_ROOM_TEMP)
+            initial = state.get("initial_temp", INITIAL_ROOM_TEMP)
+            # print(f"Room {room_id} current temp: {current}, initial temp: {initial}")
+
+            if current < initial:
+                self.room_states[room_id]["current_temp"] = min(current + rate, initial)
+                wait_obj.current_temp = self.room_states[room_id]["current_temp"]
+            elif current > initial:
+                self.room_states[room_id]["current_temp"] = max(current - rate, initial)
+                wait_obj.current_temp = self.room_states[room_id]["current_temp"]
 
     def update_off_room_temperature(self, room_id: str):
         """更新关机房间的温度（回温）"""
@@ -244,9 +258,9 @@ class ACServiceManager:
         # print(f"Room {room_id} current temp: {current}, initial temp: {initial}")
 
         if current < initial:
-            state["current_temp"] = min(current + rate, initial)
+            self.room_states[room_id]["current_temp"] = min(current + rate, initial)
         elif current > initial:
-            state["current_temp"] = max(current - rate, initial)
+            self.room_states[room_id]["current_temp"] = max(current - rate, initial)
 
     def check_target_reached(self, service_obj: ServiceObject) -> bool:
         """检查是否达到目标温度"""
