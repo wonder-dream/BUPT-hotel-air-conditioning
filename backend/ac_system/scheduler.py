@@ -19,7 +19,7 @@ import sys
 import os
 
 # 引入 Django 模型
-from .models import ACDetailRecord, AccommodationOrder, Room
+from ac_system.models import ACDetailRecord, AccommodationOrder, Room
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
@@ -547,11 +547,16 @@ class ACScheduler:
         fan_speed: str,
         mode: str,
         current_temp: float,
+        cost: float = 0,
+        energy_consumed: float = 0,
     ):
         """分配服务 - 创建服务对象"""
         service_obj = ServiceObject(room_id, target_temp, fan_speed, mode)
         service_obj.current_temp = current_temp
+        service_obj.cost = cost
+        service_obj.energy_consumed = energy_consumed
         self.service_queue[room_id] = service_obj
+
 
         # 委托 ServiceManager 创建详单记录
         self.service_manager.create_detail_record(service_obj)
@@ -686,6 +691,8 @@ class ACScheduler:
                         new_speed,
                         wait_obj.mode,
                         wait_obj.current_temp,
+                        wait_obj.cost,
+                        wait_obj.energy_consumed,
                     )
                     del self.wait_queue[room_id]
 
