@@ -22,6 +22,7 @@ import os
 from ac_system.models import ACDetailRecord, AccommodationOrder, Room
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import config
 from config import (
     MAX_SERVICE_NUM,
     WAIT_TIME_SLICE,
@@ -126,6 +127,7 @@ class ACServiceManager:
         """初始化房间空调状态（入住时调用）"""
         self.room_states[room_id] = {
             "current_temp": INITIAL_ROOM_TEMP,
+            "initial_temp":INITIAL_ROOM_TEMP,
             "target_temp": DEFAULT_TEMP,
             "is_on": False,
             "status": "off",
@@ -197,8 +199,8 @@ class ACServiceManager:
         """
         service_obj.update_service_duration()
 
-        rate = TEMP_CHANGE_RATE.get(service_obj.fan_speed, 0.5) / 60  # 转换为每秒
-        power = FAN_SPEED_POWER.get(service_obj.fan_speed, 0.5) / 60  # 转换为每秒
+        rate = config.TEMP_CHANGE_RATE.get(service_obj.fan_speed, 0.5) / 60  # 转换为每秒
+        power = config.FAN_SPEED_POWER.get(service_obj.fan_speed, 0.5) / 60  # 转换为每秒
 
         if service_obj.mode == "cooling":
             if service_obj.current_temp > service_obj.target_temp:
@@ -235,13 +237,15 @@ class ACServiceManager:
         if state.get("status") != "off":
             return
 
-        rate = TEMP_RESTORE_RATE / 60
+        rate = config.TEMP_RESTORE_RATE / 60
         current = state.get("current_temp", INITIAL_ROOM_TEMP)
+        initial = state.get("initial_temp", INITIAL_ROOM_TEMP)
+        # print(f"Room {room_id} current temp: {current}, initial temp: {initial}")
 
-        if current < INITIAL_ROOM_TEMP:
-            state["current_temp"] = min(current + rate, INITIAL_ROOM_TEMP)
-        elif current > INITIAL_ROOM_TEMP:
-            state["current_temp"] = max(current - rate, INITIAL_ROOM_TEMP)
+        if current < initial:
+            state["current_temp"] = min(current + rate, initial)
+        elif current > initial:
+            state["current_temp"] = max(current - rate, initial)
 
     def check_target_reached(self, service_obj: ServiceObject) -> bool:
         """检查是否达到目标温度"""
@@ -404,6 +408,9 @@ class ACScheduler:
 
     def _scheduler_loop(self):
         """调度器主循环"""
+
+        time.sleep(0.1)  # 等待0.1秒，确保所有房间都初始化完成
+
         while self.running:
             try:
                 # 1. 处理待处理的请求（防抖）
@@ -418,6 +425,7 @@ class ACScheduler:
                 # 4. 检查是否达到目标温度
                 self._check_target_reached()
 
+                print("进行了一次调度器主循环…")
                 time.sleep(1)  # 每秒执行一次
             except Exception as e:
                 logger.error(f"[Scheduler] Scheduler loop error: {e}")

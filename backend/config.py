@@ -7,9 +7,9 @@ WAIT_TIME_SLICE = 120  # 等待时间片 s秒
 
 # 温度配置
 DEFAULT_TEMP = 25  # 缺省温度
-COOLING_MIN_TEMP = 18  # 制冷最低温度
-COOLING_MAX_TEMP = 25  # 制冷最高温度
-HEATING_MIN_TEMP = 25  # 制热最低温度
+COOLING_MIN_TEMP = 15  # 制冷最低温度
+COOLING_MAX_TEMP = 30  # 制冷最高温度
+HEATING_MIN_TEMP = 20  # 制热最低温度
 HEATING_MAX_TEMP = 30  # 制热最高温度
 TEMP_THRESHOLD = 1  # 温度偏离阈值，超过此值自动重启
 
