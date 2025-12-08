@@ -41,3 +41,6 @@ FAN_SPEED_PRIORITY = {"low": 1, "medium": 2, "high": 3}
 
 # 房间价格（元/天）
 ROOM_PRICE = {"standard": 400, "deluxe": 600, "suite": 800}  # 标准间  # 豪华间  # 套房
+
+# 时间缩放比例
+TIME_SCALE = 6

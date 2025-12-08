@@ -38,6 +38,7 @@ from config import (
     HEATING_MIN_TEMP,
     HEATING_MAX_TEMP,
     TEMP_THRESHOLD,
+    TIME_SCALE
 )
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ class WaitingObject:
 
     def get_remaining_wait_time(self) -> float:
         """获取剩余等待时间"""
-        elapsed = (datetime.now() - self.wait_start_time).total_seconds()
+        elapsed = (datetime.now() - self.wait_start_time).total_seconds() * TIME_SCALE
         return max(0, self.wait_duration - elapsed)
 
     def is_wait_expired(self) -> bool:
@@ -199,8 +200,8 @@ class ACServiceManager:
         """
         service_obj.update_service_duration()
 
-        rate = config.TEMP_CHANGE_RATE.get(service_obj.fan_speed, 0.5) / 60  # 转换为每秒
-        power = config.FAN_SPEED_POWER.get(service_obj.fan_speed, 0.5) / 60  # 转换为每秒
+        rate = config.TEMP_CHANGE_RATE.get(service_obj.fan_speed, 0.5) / 60 * TIME_SCALE # 转换为每秒
+        power = config.FAN_SPEED_POWER.get(service_obj.fan_speed, 0.5) / 60 * TIME_SCALE  # 转换为每秒
 
         if service_obj.mode == "cooling":
             if service_obj.current_temp > service_obj.target_temp:
@@ -237,7 +238,7 @@ class ACServiceManager:
         if state.get("status") != "off":
             return
 
-        rate = config.TEMP_RESTORE_RATE / 60
+        rate = config.TEMP_RESTORE_RATE / 60 * TIME_SCALE
         current = state.get("current_temp", INITIAL_ROOM_TEMP)
         initial = state.get("initial_temp", INITIAL_ROOM_TEMP)
         # print(f"Room {room_id} current temp: {current}, initial temp: {initial}")
@@ -376,7 +377,7 @@ class ACScheduler:
         self.service_queue: Dict[str, ServiceObject] = {}  # 服务队列
         self.wait_queue: Dict[str, WaitingObject] = {}  # 等待队列
         self.max_service_num = MAX_SERVICE_NUM
-        self.wait_time_slice = WAIT_TIME_SLICE
+        self.wait_time_slice = config.WAIT_TIME_SLICE // TIME_SCALE  # 调整时间片长度
         self.running = False
         self.scheduler_thread = None
         self._request_timestamps: Dict[str, float] = {}  # 记录请求时间戳，用于防抖
