@@ -296,6 +296,10 @@ class ACServiceManager:
                 room_id=service_obj.room_id, status="active"
             ).first()
 
+            # 记录本次服务开始时的累计费用和能耗，用于计算增量
+            service_obj.record_start_cost = service_obj.cost
+            service_obj.record_start_energy = service_obj.energy_consumed
+
             record = ACDetailRecord.objects.create(
                 room_id=service_obj.room_id,
                 order=order,
@@ -323,11 +327,17 @@ class ACServiceManager:
             record = ACDetailRecord.objects.get(record_id=service_obj.record_id)
             record.end_time = timezone.now()
             record.end_temp = service_obj.current_temp
-            record.energy_consumed = service_obj.energy_consumed
-            record.cost = service_obj.cost
+            
+            # 计算本次服务产生的增量费用和能耗
+            start_cost = getattr(service_obj, 'record_start_cost', Decimal("0.00"))
+            start_energy = getattr(service_obj, 'record_start_energy', 0.0)
+            record.energy_consumed = service_obj.energy_consumed - start_energy
+            record.cost = service_obj.cost - start_cost
+            
             record.save()
             logger.info(
-                f"[ServiceManager] Ended detail record {record.record_id} for room {service_obj.room_id}"
+                f"[ServiceManager] Ended detail record {record.record_id} for room {service_obj.room_id}, "
+                f"cost={record.cost:.2f}, energy={record.energy_consumed:.2f}"
             )
         except Exception as e:
             logger.error(f"[ServiceManager] Failed to end detail record: {e}")
@@ -510,19 +520,23 @@ class ACScheduler:
         else:
             target_temp = max(HEATING_MIN_TEMP, min(HEATING_MAX_TEMP, target_temp))
 
-        # 获取当前温度
-        current_temp = self.service_manager.room_states.get(room_id, {}).get(
-            "current_temp", INITIAL_ROOM_TEMP
-        )
+        # 获取当前温度和累计费用/能耗
+        room_state = self.service_manager.room_states.get(room_id, {})
+        current_temp = room_state.get("current_temp", INITIAL_ROOM_TEMP)
+        # 获取之前累计的费用和能耗，第二次开机时继续累加
+        accumulated_cost = Decimal(str(room_state.get("cost", 0)))
+        accumulated_energy = room_state.get("energy_consumed", 0)
 
         # 调度决策：检查服务队列是否已满
         if len(self.service_queue) < self.max_service_num:
             # 直接分配服务
-            self._allocate_service(room_id, target_temp, fan_speed, mode, current_temp)
+            self._allocate_service(room_id, target_temp, fan_speed, mode, current_temp, 
+                                   accumulated_cost, accumulated_energy)
             logger.info(f"[Scheduler] Room {room_id} started service directly")
         else:
             # 需要调度决策
-            self._schedule_request(room_id, target_temp, fan_speed, mode, current_temp)
+            self._schedule_request(room_id, target_temp, fan_speed, mode, current_temp,
+                                   accumulated_cost, accumulated_energy)
 
     def _schedule_request(
         self,
@@ -531,6 +545,8 @@ class ACScheduler:
         fan_speed: str,
         mode: str,
         current_temp: float,
+        accumulated_cost: Decimal = Decimal("0.00"),
+        accumulated_energy: float = 0.0,
     ):
         """调度新请求 - 优先级调度决策"""
         new_priority = FAN_SPEED_PRIORITY.get(fan_speed, 0)
@@ -556,11 +572,13 @@ class ACScheduler:
             self._move_to_wait_queue(victim_id, victim)
 
             # 新请求获得服务
-            self._allocate_service(room_id, target_temp, fan_speed, mode, current_temp)
+            self._allocate_service(room_id, target_temp, fan_speed, mode, current_temp,
+                                   accumulated_cost, accumulated_energy)
             logger.info(f"[Scheduler] Room {room_id} preempted room {victim_id}")
         else:
             # 时间片调度：加入等待队列
-            self._add_to_wait_queue(room_id, target_temp, fan_speed, mode, current_temp)
+            self._add_to_wait_queue(room_id, target_temp, fan_speed, mode, current_temp,
+                                    accumulated_cost, accumulated_energy)
             logger.info(f"[Scheduler] Room {room_id} added to wait queue")
 
     def _allocate_service(
@@ -570,13 +588,13 @@ class ACScheduler:
         fan_speed: str,
         mode: str,
         current_temp: float,
-        cost: float = 0,
+        cost: Decimal = Decimal("0.00"),
         energy_consumed: float = 0,
     ):
         """分配服务 - 创建服务对象"""
         service_obj = ServiceObject(room_id, target_temp, fan_speed, mode)
         service_obj.current_temp = current_temp
-        service_obj.cost = cost
+        service_obj.cost = cost if isinstance(cost, Decimal) else Decimal(str(cost))
         service_obj.energy_consumed = energy_consumed
         self.service_queue[room_id] = service_obj
 
@@ -596,10 +614,14 @@ class ACScheduler:
         fan_speed: str,
         mode: str,
         current_temp: float,
+        cost: Decimal = Decimal("0.00"),
+        energy_consumed: float = 0,
     ):
         """加入等待队列"""
         wait_obj = WaitingObject(room_id, target_temp, fan_speed, mode)
         wait_obj.current_temp = current_temp
+        wait_obj.cost = cost if isinstance(cost, Decimal) else Decimal(str(cost))
+        wait_obj.energy_consumed = energy_consumed
         self.wait_queue[room_id] = wait_obj
 
         # 更新房间状态
@@ -665,9 +687,38 @@ class ACScheduler:
             self.service_queue[room_id].target_temp = target_temp
             self.service_queue[room_id].mode = mode
 
-        if room_id in self.wait_queue:
+        elif room_id in self.wait_queue:
             self.wait_queue[room_id].target_temp = target_temp
             self.wait_queue[room_id].mode = mode
+
+        else:
+            # 房间可能处于 standby 状态，检查是否需要立即重新请求服务
+            state = self.service_manager.room_states.get(room_id, {})
+            if state.get("status") == "standby":
+                current_temp = state.get("current_temp", DEFAULT_TEMP)
+                need_service = False
+                
+                if mode == "cooling":
+                    # 制冷：当前温度高于目标温度，需要服务
+                    need_service = current_temp > target_temp
+                else:
+                    # 制热：当前温度低于目标温度，需要服务
+                    need_service = current_temp < target_temp
+                
+                if need_service:
+                    # 更新目标温度后立即重新请求服务
+                    self.service_manager.room_states[room_id]["target_temp"] = target_temp
+                    self.service_manager.room_states[room_id]["mode"] = mode
+                    
+                    # 重新发送开机请求参与调度
+                    self.submit_request(room_id, {
+                        "action": "power_on",
+                        "target_temp": target_temp,
+                        "fan_speed": state.get("fan_speed", "medium"),
+                        "mode": mode,
+                    })
+                    logger.info(f"[Scheduler] Standby room {room_id} re-requested service after temp change to {target_temp}")
+                    return
 
         # 更新房间状态
         if room_id in self.service_manager.room_states:
@@ -761,13 +812,19 @@ class ACScheduler:
                 wobj.waited_full_slice = True
 
         if expired and len(self.service_queue) >= self.max_service_num:
-            # 按优先级和等待时间排序
+            # 按优先级排序（高优先级优先），同优先级按等待开始时间排序（先等待的优先）
             expired.sort(
-                key=lambda x: (-x[1].get_priority(), x[1].waited_full_slice),
-                reverse=True,
+                key=lambda x: (-x[1].get_priority(), x[1].wait_start_time),
             )
 
+            # 记录本轮成功替换的房间
+            swapped_rooms = []
+
             for room_id, wobj in expired:
+                # 如果该房间已经不在等待队列中（可能已被处理），跳过
+                if room_id not in self.wait_queue:
+                    continue
+                    
                 # 找到服务时长最长的同优先级或低优先级服务对象
                 candidates = [
                     (sid, sobj)
@@ -789,9 +846,11 @@ class ACScheduler:
                     service_obj.current_temp = wobj.current_temp
                     service_obj.energy_consumed = wobj.energy_consumed
                     service_obj.cost = wobj.cost
-                    service_obj.record_id = wobj.record_id
                     self.service_queue[room_id] = service_obj
                     del self.wait_queue[room_id]
+
+                    # 创建新的详单记录
+                    self.service_manager.create_detail_record(service_obj)
 
                     # 更新房间状态
                     self.service_manager.update_room_status(room_id, "on")
@@ -799,18 +858,16 @@ class ACScheduler:
                         f"[Scheduler] Time slice: Room {room_id} replaced room {victim_id}"
                     )
                     
-                    # 修复：重置其他已到期但未能获得服务的等待对象的等待时间
-                    # 避免同优先级房间之间频繁轮换
-                    for other_room_id, other_wobj in expired:
-                        if other_room_id in self.wait_queue:
-                            # 重置等待时间，重新开始计时
-                            other_wobj.wait_start_time = datetime.now()
-                            other_wobj.waited_full_slice = False
-                            logger.info(
-                                f"[Scheduler] Reset wait time for room {other_room_id}"
-                            )
+                    swapped_rooms.append(room_id)
                     
-                    break
+                    # 继续尝试下一个到期的房间，不要break
+                else:
+                    # 没有可替换的候选者，重置该房间的等待时间
+                    wobj.wait_start_time = datetime.now()
+                    wobj.waited_full_slice = False
+                    logger.info(
+                        f"[Scheduler] No candidate to replace, reset wait time for room {room_id}"
+                    )
 
     def _check_target_reached(self):
         """检查是否达到目标温度"""
@@ -870,9 +927,11 @@ class ACScheduler:
             service_obj.current_temp = wobj.current_temp
             service_obj.energy_consumed = wobj.energy_consumed
             service_obj.cost = wobj.cost
-            service_obj.record_id = wobj.record_id
             self.service_queue[room_id] = service_obj
             del self.wait_queue[room_id]
+
+            # 创建新的详单记录
+            self.service_manager.create_detail_record(service_obj)
 
             # 更新房间状态
             self.service_manager.update_room_status(room_id, "on")

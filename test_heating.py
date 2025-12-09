@@ -218,7 +218,9 @@ class HeatingTest:
         
         if action_type == "power_on":
             target_temp = self.room_states[room_id]["target_temp"]
-            fan_speed = self.room_states[room_id]["fan_speed"]
+            # 开机时风速重置为默认的 medium
+            fan_speed = "medium"
+            self.room_states[room_id]["fan_speed"] = fan_speed
             
             scheduler.submit_request(room_id, {
                 "action": "power_on",
@@ -281,10 +283,6 @@ class HeatingTest:
                         "action": "change_speed",
                         "fan_speed": fan_speed,
                     })
-                scheduler.submit_request(room_id, {
-                    "action": "change_speed",
-                    "fan_speed": fan_speed,
-                })
             
             print(f"    房间 {room_id}: 调温={target_temp}°C, 调风速={fan_speed}")
     
