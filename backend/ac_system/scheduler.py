@@ -244,12 +244,14 @@ class ACServiceManager:
                 wait_obj.current_temp = self.room_states[room_id]["current_temp"]
 
     def update_off_room_temperature(self, room_id: str):
-        """更新关机房间的温度（回温）"""
+        """更新关机或待机房间的温度（回温）"""
         if room_id not in self.room_states:
             return
 
         state = self.room_states[room_id]
-        if state.get("status") != "off":
+        status = state.get("status")
+        # 关机和待机状态的房间都会回温
+        if status not in ("off", "standby"):
             return
 
         rate = config.TEMP_RESTORE_RATE / 60 * TIME_SCALE

@@ -217,9 +217,10 @@ class CoolingTest:
         action_type = action.get("type")
         
         if action_type == "power_on":
-            target_temp = self.room_states[room_id]["target_temp"]
-            # 开机时风速重置为默认的 medium
+            # 开机时重置为默认目标温度和风速
+            target_temp = DEFAULT_COOLING_TEMP
             fan_speed = "medium"
+            self.room_states[room_id]["target_temp"] = target_temp
             self.room_states[room_id]["fan_speed"] = fan_speed
             
             scheduler.submit_request(room_id, {
@@ -327,23 +328,40 @@ class CoolingTest:
         # 启动调度器
         scheduler.start()
         print("调度器已启动\n")
-        
-        for time_min, actions in test_data:
+
+        # 将 test_data 转换为字典以便快速查找
+        actions_map = {time_min: actions for time_min, actions in test_data}
+        max_time = 0
+        if test_data:
+            max_time = max(t for t, a in test_data)
+
+        for time_min in range(max_time + 1):
+            actions = actions_map.get(time_min)
+
             # 等待到达指定时间点
             target_test_time = time_min * TEST_INTERVAL
             current_test_time = time.time() - self.test_start_time
             
             if target_test_time > current_test_time:
                 wait_time = target_test_time - current_test_time
-                print(f"\n等待 {wait_time:.1f} 秒到达时间点 {time_min} 分钟...")
+                # 只在需要执行操作或在特定时间点打印时显示等待信息
+                if actions is not None or 13 <= time_min <= 15:
+                    print(f"\n等待 {wait_time:.1f} 秒到达时间点 {time_min} 分钟...")
                 time.sleep(wait_time)
             
+            # 只在有操作或在特定时间点打印
+            if actions is None and not (13 <= time_min <= 15):
+                continue
+
             print(f"\n{'='*60}")
             print(f"时间点: {time_min} 分钟 (测试时间: {time.time() - self.test_start_time:.1f}秒)")
             print(f"{'='*60}")
             
             if time_min == 0:
                 print("  系统启动，设置制冷模式")
+                # 即使没有操作，也打印初始状态
+                if not actions:
+                    self.print_status(time_min)
                 continue
             
             # 执行该时间点的所有操作
