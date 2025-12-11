@@ -28,6 +28,9 @@ from ac_system.models import Room, ACState, ACDetailRecord, Customer, Accommodat
 from ac_system.scheduler import scheduler, ServiceObject, WaitingObject
 from django.utils import timezone
 
+# 引入报告生成模块
+from generate_room_report import generate_room_report, print_room_report, save_report_to_file
+
 # ============================================================
 # 测试配置
 # ============================================================
@@ -404,22 +407,21 @@ class CoolingTest:
         print("-" * 60)
         print(f"  总费用: {total_cost:.2f}元, 总能耗: {total_energy:.2f}度")
         
-        # 打印详单
-        print("\n详单记录:")
-        print("-" * 100)
-        print(f"  {'房间':<8} {'开始时间':<12} {'结束时间':<12} {'起始温度':<10} {'结束温度':<10} {'风速':<8} {'费用':<10}")
-        print("-" * 100)
+        # 使用 generate_room_report 模块打印每个房间的详细记录
+        print("\n" + "=" * 100)
+        print("各房间详细空调记录 (使用 generate_room_report 模块)")
+        print("=" * 100)
         
+        reports = []
         for room_id in self.room_ids:
-            records = ACDetailRecord.objects.filter(room_id=room_id).order_by('start_time')
-            for record in records:
-                start_time = record.start_time.strftime("%H:%M:%S") if record.start_time else "-"
-                end_time = record.end_time.strftime("%H:%M:%S") if record.end_time else "-"
-                start_temp = f"{record.start_temp:.1f}" if record.start_temp else "-"
-                end_temp = f"{record.end_temp:.1f}" if record.end_temp else "-"
-                fan_speed = record.fan_speed or "-"
-                cost = f"{record.cost:.2f}元" if record.cost else "-"
-                print(f"  {room_id:<8} {start_time:<12} {end_time:<12} {start_temp:<10} {end_temp:<10} {fan_speed:<8} {cost:<10}")
+            report = generate_room_report(room_id)
+            reports.append(report)
+            print_room_report(report)
+        
+        # 保存报告到文件
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"ac_report_cooling_{timestamp}.txt"
+        save_report_to_file(reports, filename)
 
 
 def apply_time_compression():
