@@ -98,21 +98,21 @@
           <h3>结账详情</h3>
           <div class="info-item">
             <span class="label">房费:</span>
-            <span class="value highlight">¥{{ billDetail.room_fee }}</span>
+            <span class="value highlight">¥{{ formatMoney(billDetail.room_fee) }}</span>
           </div>
           <div class="info-item">
             <span class="label">空调使用费:</span>
-            <span class="value highlight">¥{{ billDetail.ac_fee }}</span>
+            <span class="value highlight">¥{{ formatMoney(billDetail.ac_fee) }}</span>
           </div>
           <div class="info-item total">
             <span class="label">总计:</span>
-            <span class="value highlight">¥{{ billDetail.total_fee }}</span>
+            <span class="value highlight">¥{{ formatMoney(billDetail.total_fee) }}</span>
           </div>
           <el-button type="primary" size="large" @click="handlePay" class="pay-btn">
             立即支付
           </el-button>
-          <el-button type="default" size="large" @click="handlePrintBill" class="print-btn">
-            详单打印
+          <el-button type="default" size="large" @click="handleShowDetails" class="print-btn">
+            显示详单
           </el-button>
         </div>
       </div>
@@ -166,6 +166,58 @@
         </div>
       </div>
     </div>
+    <el-dialog v-model="detailDialogVisible" title="空调运行详单" width="800px">
+      <div class="detail-summary">
+        <div class="info-item">
+          <span class="label">房间号:</span>
+          <span class="value highlight">{{ acDetails?.room_id }}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">总服务次数:</span>
+          <span class="value highlight">{{ acDetails?.summary?.total_records }}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">总时长:</span>
+          <span class="value highlight">{{ Math.floor((acDetails?.summary?.total_duration_seconds || 0)/60) }} 分钟</span>
+        </div>
+      <div class="info-item">
+        <span class="label">总能耗:</span>
+        <span class="value highlight">{{ format2(acDetails?.summary?.total_energy) }} 度</span>
+      </div>
+      <div class="info-item">
+        <span class="label">总费用:</span>
+        <span class="value highlight">¥{{ formatMoney(acDetails?.summary?.total_cost) }}</span>
+      </div>
+      </div>
+      <el-table :data="acDetails?.details || []" style="width: 100%" height="380">
+        <el-table-column prop="seq" label="序号" width="70" />
+        <el-table-column prop="start_time" label="开始时间" width="160" />
+        <el-table-column prop="end_time" label="结束时间" width="160" />
+        <el-table-column label="时长" width="100">
+          <template #default="{ row }">
+            {{ row.duration_seconds < 60 ? `${row.duration_seconds}秒` : `${(row.duration_seconds/60).toFixed(1)}分钟` }}
+          </template>
+        </el-table-column>
+      <el-table-column label="温度" width="160">
+        <template #default="{ row }">
+          {{ format2(row.start_temp) }}°C → {{ row.end_temp == null ? '--' : format2(row.end_temp) }}°C / 目标 {{ format2(row.target_temp) }}°C
+        </template>
+      </el-table-column>
+        <el-table-column label="模式/风速" width="140">
+          <template #default="{ row }">
+            {{ row.mode === 'cooling' ? '制冷' : '制热' }} / {{ row.fan_speed === 'low' ? '低' : (row.fan_speed === 'high' ? '高' : '中') }}
+          </template>
+        </el-table-column>
+      <el-table-column prop="energy" label="耗电(度)" width="110" />
+      <el-table-column label="费用" width="100">
+        <template #default="{ row }">¥{{ formatMoney(row.cost) }}</template>
+      </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="detailDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="window.print()">打印</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -193,6 +245,8 @@ const checkOutForm = ref({
   room_id: ''
 })
 const billDetail = ref(null)
+const detailDialogVisible = ref(false)
+const acDetails = ref(null)
 
 // 获取可用房间
 const loadAvailableRooms = async () => {
@@ -235,6 +289,8 @@ const formatTime = (timeStr) => {
     minute: '2-digit'
   })
 }
+const format2 = (n) => Number(n || 0).toFixed(2)
+const formatMoney = (n) => format2(n)
 
 // 办理入住
 const handleCheckIn = async () => {
@@ -297,31 +353,21 @@ const handlePay = async () => {
   }
 }
 
-// 打印详单
-const handlePrintBill = async () => {
+const handleShowDetails = async () => {
+  if (!checkOutForm.value.room_id) {
+    ElMessage.warning('请输入房间号')
+    return
+  }
   try {
-    const roomId = checkOutForm.value.room_id || null
-    const res = await api.printACReport(roomId)
-    if (res.code !== 200 || !res.data?.content) {
-      ElMessage.error(res.message || '生成打印文件失败')
-      return
+    const res = await api.getACDetails(checkOutForm.value.room_id)
+    if (res.code === 200) {
+      acDetails.value = res.data
+      detailDialogVisible.value = true
+    } else {
+      ElMessage.error(res.message || '获取详单失败')
     }
-    const win = window.open('', '_blank')
-    if (!win) {
-      ElMessage.error('无法打开打印窗口')
-      return
-    }
-    const content = res.data.content
-    const filename = res.data.filename || 'ac_report.txt'
-    win.document.write(`<pre style="font-family: Consolas, monospace; white-space: pre-wrap; line-height: 1.6; margin: 20px;">${content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`)
-    win.document.title = filename
-    win.document.close()
-    win.focus()
-    win.print()
-    win.close()
-    ElMessage.success('已发送到打印机')
   } catch (error) {
-    ElMessage.error('打印失败')
+    ElMessage.error('获取详单失败')
     console.error(error)
   }
 }
@@ -442,6 +488,13 @@ h2 {
   margin-top: 10px;
   height: 50px;
   font-size: 16px;
+}
+
+.detail-summary {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 20px;
+  margin-bottom: 10px;
 }
 
 /* 房间状态面板样式 */

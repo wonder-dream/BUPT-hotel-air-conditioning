@@ -52,6 +52,9 @@ export default {
   getACMonitor() {
     return api.get('/ac/monitor/')
   },
+  getACDetails(roomId) {
+    return api.get(`/ac/details/${roomId}/`)
+  },
   
   // 订单和报表
   getOrders(status = null) {
@@ -62,10 +65,5 @@ export default {
     const params = { type }
     if (date) params.date = date
     return api.get('/report/', { params })
-  },
-  printACReport(roomId = null) {
-    const params = {}
-    if (roomId) params.room_id = roomId
-    return api.get('/print/ac_report/', { params })
   }
 }

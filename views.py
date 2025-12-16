@@ -183,10 +183,9 @@ class BillDetailView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 计算费用
         room_fee = CheckOutService.calculate_room_fee(order)
-        ac_state = ACService.get_state(room_id)
-        ac_fee = Decimal(str(ac_state.get("cost", 0)))
+        from .models import ACDetailRecord
+        ac_fee = sum(Decimal(str(r.cost or 0)) for r in ACDetailRecord.objects.filter(order=order))
 
         return Response(
             {
@@ -275,6 +274,68 @@ class ACMonitorView(APIView):
         states = ACService.get_all_states()
         return Response({"code": 200, "data": states, "message": "success"})
 
+class ACDetailListView(APIView):
+    """获取当前入住的空调运行详单"""
+
+    def get(self, request, room_id):
+        success, msg, order = CheckOutService.get_active_order(room_id)
+        if not success or not order:
+            return Response(
+                {"code": 400, "data": None, "message": msg},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from .models import ACDetailRecord
+
+        records = ACDetailRecord.objects.filter(order=order).order_by("start_time")
+
+        total_energy = 0.0
+        total_cost = Decimal("0.00")
+        total_seconds = 0
+        details = []
+
+        for idx, r in enumerate(records, start=1):
+            start = r.start_time
+            end = r.end_time or timezone.now()
+            duration_seconds = int((end - start).total_seconds())
+
+            energy = round(float(r.energy_consumed or 0), 2)
+            cost = Decimal(str(r.cost or 0))
+
+            total_energy += energy
+            total_cost += cost
+            total_seconds += duration_seconds
+
+            details.append(
+                {
+                    "seq": idx,
+                    "start_time": start.strftime("%Y-%m-%d %H:%M:%S"),
+                    "end_time": r.end_time and r.end_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "duration_seconds": duration_seconds,
+                    "start_temp": round(float(r.start_temp), 2),
+                    "end_temp": None if r.end_temp is None else round(float(r.end_temp), 2),
+                    "target_temp": round(float(r.target_temp), 2),
+                    "fan_speed": r.fan_speed,
+                    "mode": r.mode,
+                    "energy": energy,
+                    "cost": round(float(cost), 2),
+                }
+            )
+
+        data = {
+            "room_id": room_id,
+            "order_id": order.order_id,
+            "summary": {
+                "total_records": len(details),
+                "total_duration_seconds": total_seconds,
+                "total_energy": round(float(total_energy), 2),
+                "total_cost": round(float(total_cost), 2),
+            },
+            "details": details,
+        }
+
+        return Response({"code": 200, "data": data, "message": "success"})
+
 
 class OrderListView(APIView):
     """订单列表"""
@@ -311,60 +372,3 @@ class ReportView(APIView):
             report = ReportService.generate_daily_report(date)
 
         return Response({"code": 200, "data": report, "message": "success"})
-
-
-class PrintACReportView(APIView):
-    def get(self, request):
-        import os
-        import importlib.util
-
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        report_path = os.path.join(project_root, "generate_room_report.py")
-        spec = importlib.util.spec_from_file_location(
-            "generate_room_report", report_path
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-
-        room_id = request.query_params.get("room_id", None)
-        if room_id:
-            reports = [module.generate_room_report(room_id)]
-        else:
-            from ac_system.models import ACDetailRecord
-
-            room_ids = (
-                ACDetailRecord.objects.values_list("room_id", flat=True)
-                .distinct()
-            )
-            room_ids = sorted(set(room_ids))
-            if not room_ids:
-                room_ids = ["301", "302", "303", "304", "305"]
-            reports = [module.generate_room_report(rid) for rid in room_ids]
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"ac_report_{timestamp}.txt"
-        module.save_report_to_file(reports, filename)
-
-        try:
-            backend_dir = os.path.dirname(os.path.dirname(__file__))
-            candidate_paths = [
-                os.path.join(backend_dir, filename),
-                os.path.join(project_root, filename),
-            ]
-            content = None
-            for p in candidate_paths:
-                if os.path.exists(p):
-                    with open(p, "r", encoding="utf-8") as f:
-                        content = f.read()
-                    break
-            if content is None:
-                raise FileNotFoundError(filename)
-        except Exception as e:
-            return Response(
-                {"code": 500, "data": None, "message": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        return Response(
-            {"code": 200, "data": {"filename": filename, "content": content}, "message": "success"}
-        )

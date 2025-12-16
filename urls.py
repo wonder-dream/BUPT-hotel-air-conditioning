@@ -22,8 +22,8 @@ urlpatterns = [
     path("ac/control/", views.ACControlView.as_view(), name="ac-control"),
     path("ac/state/<str:room_id>/", views.ACStateView.as_view(), name="ac-state"),
     path("ac/monitor/", views.ACMonitorView.as_view(), name="ac-monitor"),
+    path("ac/details/<str:room_id>/", views.ACDetailListView.as_view(), name="ac-details"),
     # 订单和报表
     path("orders/", views.OrderListView.as_view(), name="order-list"),
     path("report/", views.ReportView.as_view(), name="report"),
-    path("print/ac_report/", views.PrintACReportView.as_view(), name="print-ac-report"),
 ]
