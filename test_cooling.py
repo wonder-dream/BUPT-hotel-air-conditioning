@@ -41,11 +41,11 @@ TEST_INTERVAL = 10  # 每行测试数据间隔10秒
 
 # 房间初始温度配置（制冷模式 - 初始温度较高）
 INITIAL_TEMPS = {
-    "101": 32.0,  # 房间一 32℃
-    "102": 28.0,  # 房间二 28℃
-    "103": 30.0,  # 房间三 30℃
-    "104": 29.0,  # 房间四 29℃
-    "105": 35.0,  # 房间五 35℃
+    "301": 32.0,
+    "302": 28.0,
+    "303": 30.0,
+    "304": 29.0,
+    "305": 35.0,
 }
 
 # 制冷模式默认温度
@@ -90,7 +90,7 @@ def parse_test_data(filepath):
         
         # 解析每个房间的操作（列1-5对应房间1-5）
         for room_idx in range(5):
-            room_id = f"10{room_idx + 1}"
+            room_id = f"30{room_idx + 1}"
             cell_value = row[room_idx + 1]
             
             if cell_value is not None:
@@ -152,10 +152,30 @@ def parse_action(cell_value):
 
 class CoolingTest:
     def __init__(self):
-        self.room_ids = ["101", "102", "103", "104", "105"]
+        self.room_ids = ["301", "302", "303", "304", "305"]
         self.room_states = {}  # 记录每个房间的当前设置
         self.test_start_time = None
         self.log_file = None
+        # 初始化日志重定向
+        try:
+            class Tee(object):
+                def __init__(self, *files):
+                    self.files = files
+                def write(self, obj):
+                    for f in self.files:
+                        f.write(obj)
+                        f.flush()
+                def flush(self):
+                    for f in self.files:
+                        f.flush()
+            import io
+            log_path = os.path.join(os.path.dirname(__file__), "monitor_output.log")
+            # 清空旧日志
+            open(log_path, "w", encoding="utf-8").close()
+            self.log_file = open(log_path, "a", encoding="utf-8")
+            sys.stdout = Tee(sys.stdout, self.log_file)
+        except Exception:
+            pass
         
     def setup(self):
         """初始化测试环境"""

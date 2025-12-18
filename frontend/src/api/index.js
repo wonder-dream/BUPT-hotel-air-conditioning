@@ -32,6 +32,9 @@ export default {
   checkIn(data) {
     return api.post('/checkin/', data)
   },
+  reserve(data) {
+    return api.post('/reserve/', data)
+  },
   checkOut(roomId) {
     return api.post('/checkout/', { room_id: roomId })
   },
@@ -40,6 +43,13 @@ export default {
   },
   payBill(billId) {
     return api.post('/pay/', { bill_id: billId })
+  },
+  // 餐饮订餐
+  orderMeal(data) {
+    return api.post('/meal/order/', data)
+  },
+  getMealOrders(roomId) {
+    return api.get(`/meal/orders/${roomId}/`)
   },
   
   // 空调控制
@@ -51,6 +61,12 @@ export default {
   },
   getACMonitor() {
     return api.get('/ac/monitor/')
+  },
+  getACDetails(roomId) {
+    return api.get(`/ac/details/${roomId}/`)
+  },
+  getTestLog() {
+    return api.get('/test/log/')
   },
   
   // 订单和报表

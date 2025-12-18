@@ -32,7 +32,7 @@
     <div class="stats-overview">
       <div class="stat-card">
         <div class="stat-value">{{ stats.total }}</div>
-        <div class="stat-label">总房间数</div>
+        <div class="stat-label">总入住房间数</div>
       </div>
       <div class="stat-card">
         <div class="stat-value running">{{ stats.running }}</div>
@@ -61,6 +61,16 @@
       </el-select>
     </div>
 
+    <!-- 运行状态饼图（5个房间） -->
+    <div class="pie-section">
+      <h3>5房间空调运行状态</h3>
+      <div class="pie-chart" :style="pieStyle"></div>
+      <div class="pie-legend">
+        <span class="legend-item"><span class="legend-color on"></span>开启 {{ pieData.opened }}</span>
+        <span class="legend-item"><span class="legend-color off"></span>关闭 {{ pieData.closed }}</span>
+      </div>
+    </div>
+
     <!-- 房间状态卡片 -->
     <div class="rooms-container">
       <div 
@@ -71,7 +81,7 @@
       >
         <div class="card-header" @click="toggleCollapse(room)">
           <div class="header-left">
-            <div class="status-badge" :class="room.status"></div>
+            <div class="status-badge" :class="getBadgeClass(room)"></div>
             <h3>房间 {{ room.room_id }}</h3>
             <span class="header-meta">
               {{ room.mode === 'cooling' ? '制冷' : '制热' }} · 
@@ -152,6 +162,7 @@ import api from '../api'
 const roomStates = ref([])
 const selectedRoom = ref('all')
 let refreshTimer = null
+const defaultRooms = ['301','302','303','304','305']
 
 // 批量控制
 const bulk = reactive({
@@ -162,8 +173,28 @@ const bulk = reactive({
 
 // 过滤后的房间
 const filteredRooms = computed(() => {
-  if (selectedRoom.value === 'all') return roomStates.value
+  if (selectedRoom.value === 'all') {
+    const preferred = roomStates.value.filter(r => defaultRooms.includes(String(r.room_id)))
+    return preferred.length ? preferred : roomStates.value.slice(0, 5)
+  }
   return roomStates.value.filter(r => r.room_id === selectedRoom.value)
+})
+
+// 饼图数据（5房间：开启 vs 关闭）
+const fiveRooms = computed(() => {
+  const preferred = roomStates.value.filter(r => defaultRooms.includes(String(r.room_id)))
+  return preferred.length ? preferred : roomStates.value.slice(0, 5)
+})
+const pieData = computed(() => {
+  const opened = fiveRooms.value.filter(r => r.status !== 'off').length
+  const total = fiveRooms.value.length || 1
+  return { opened, closed: total - opened, total }
+})
+const pieStyle = computed(() => {
+  const percent = Math.round((pieData.value.opened / (pieData.value.total || 1)) * 100)
+  return {
+    background: `conic-gradient(#67c23a 0% ${percent}%, #c0c4cc ${percent}% 100%)`
+  }
 })
 
 // 统计数据
@@ -248,6 +279,11 @@ const toggleCollapse = (room) => {
   room._collapsed = !room._collapsed
 }
 
+// 状态徽标颜色（开启=绿，关闭=灰）
+const getBadgeClass = (room) => {
+  return room.status === 'off' ? 'off' : 'on'
+}
+
 // 状态类型
 const getStatusType = (status) => {
   const map = {
@@ -310,10 +346,10 @@ onUnmounted(() => {
 
 <style scoped>
 .monitor-page {
-  padding: 30px;
+  padding: 20px 16px;
   background: #f5f7fa;
   min-height: 100vh;
-  max-width: 1200px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 
@@ -321,11 +357,11 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .page-header h1 {
-  font-size: 22px;
+  font-size: 20px;
   color: #333;
   font-weight: 500;
 }
@@ -333,16 +369,16 @@ onUnmounted(() => {
 /* 批量控制 */
 .bulk-controls {
   background: white;
-  padding: 15px 20px;
-  border-radius: 10px;
-  margin-bottom: 20px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05);
 }
 
 .bulk-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
@@ -355,31 +391,69 @@ onUnmounted(() => {
 .room-selector {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 20px;
+  gap: 8px;
+  margin-bottom: 14px;
   background: white;
-  padding: 12px 20px;
-  border-radius: 10px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  padding: 10px 14px;
+  border-radius: 8px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05);
 }
+
+.pie-section {
+  background: white;
+  padding: 14px;
+  border-radius: 8px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05);
+  margin-bottom: 14px;
+}
+.pie-section h3 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  color: #333;
+}
+.pie-chart {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  margin: 6px auto;
+  box-shadow: inset 0 0 8px rgba(0,0,0,0.05);
+}
+.pie-legend {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 6px;
+  color: #666;
+  font-size: 12px;
+}
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.legend-color.on { background: #67c23a; }
+.legend-color.off { background: #c0c4cc; }
 
 .stats-overview {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 20px;
-  margin-bottom: 20px;
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
 .stat-card {
   background: white;
-  padding: 20px;
-  border-radius: 10px;
+  padding: 14px 12px;
+  border-radius: 8px;
   text-align: center;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05);
+  border: 1px solid #eef2f7;
 }
 
 .stat-value {
-  font-size: 32px;
+  font-size: 26px;
   font-weight: bold;
   color: #333;
 }
@@ -390,37 +464,38 @@ onUnmounted(() => {
 .stat-value.off { color: #c0c4cc; }
 
 .stat-label {
-  font-size: 14px;
+  font-size: 12px;
   color: #999;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 /* 房间卡片 */
 .rooms-container {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 30px;
+  gap: 10px;
+  margin-bottom: 20px;
 }
 
 .room-card {
   background: white;
-  border-radius: 10px;
+  border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid #eef2f7;
 }
 
 .room-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 15px 20px;
+  padding: 10px 12px;
   cursor: pointer;
   background: #fafbfc;
 }
@@ -428,12 +503,12 @@ onUnmounted(() => {
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .status-badge {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
@@ -445,41 +520,43 @@ onUnmounted(() => {
 
 .card-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 14px;
   color: #333;
 }
 
 .header-meta {
   color: #666;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .header-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .card-body {
-  padding: 15px 20px;
+  padding: 10px 12px;
   border-top: 1px solid #eee;
 }
 
 .info-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .info-label {
-  width: 160px;
+  width: 150px;
   color: #666;
+  font-size: 12px;
 }
 
 .info-value {
   color: #333;
   font-weight: 500;
+  font-size: 13px;
 }
 
 .info-value.highlight {
@@ -494,36 +571,36 @@ onUnmounted(() => {
 .queue-info {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  gap: 12px;
 }
 
 .queue-card {
   background: white;
-  border-radius: 10px;
-  padding: 20px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  padding: 14px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05);
 }
 
 .queue-card h3 {
-  font-size: 16px;
+  font-size: 14px;
   color: #333;
-  margin-bottom: 15px;
-  padding-bottom: 10px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
   border-bottom: 1px solid #eee;
 }
 
 .queue-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .queue-item {
   display: flex;
   justify-content: space-between;
-  padding: 10px 15px;
+  padding: 8px 12px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .queue-item.service {
@@ -543,7 +620,7 @@ onUnmounted(() => {
 .empty-hint {
   color: #999;
   text-align: center;
-  padding: 20px;
+  padding: 16px;
 }
 
 /* 过渡动画 */

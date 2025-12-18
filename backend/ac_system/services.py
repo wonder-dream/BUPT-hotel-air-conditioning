@@ -7,6 +7,7 @@ from decimal import Decimal
 from django.utils import timezone
 from django.db import transaction
 from typing import Optional, Tuple, List
+import json
 
 from .models import (
     Room,
@@ -17,6 +18,8 @@ from .models import (
     ACBill,
     AccommodationBill,
     StatisticsReport,
+    Reservation,
+    MealOrder,
 )
 from .scheduler import scheduler
 import sys
@@ -59,14 +62,17 @@ class CheckInService:
 
     @staticmethod
     def validate_room(room_id: str) -> Tuple[bool, str, Optional[Room]]:
-        """验证房间是否可用"""
+        """
+        验证房间是否可用（不能是已入住）
+        预定房间是否允许入住由视图层结合预定记录进一步判断
+        """
         try:
             room = Room.objects.get(room_id=room_id)
         except Room.DoesNotExist:
             return False, "房间不存在", None
 
-        if not room.is_available():
-            return False, "房间已被占用", None
+        if room.status == "occupied":
+            return False, "房间已被入住", None
 
         return True, "房间可用", room
 
@@ -77,6 +83,7 @@ class CheckInService:
         room: Room,
         check_in_date: datetime = None,
         check_out_date: datetime = None,
+        deposit_amount: Decimal = Decimal("0"),
     ) -> AccommodationOrder:
         """创建入住订单"""
         if check_in_date is None:
@@ -95,6 +102,8 @@ class CheckInService:
             check_in_time=check_in_date,
             status="active",
             room_fee=room_fee,
+            deposit_amount=deposit_amount or Decimal("0"),
+            deposit_paid=(deposit_amount or Decimal("0")) > 0,
         )
 
         # 更新房间状态
@@ -138,17 +147,13 @@ class CheckOutService:
 
     @staticmethod
     def calculate_room_fee(order: AccommodationOrder) -> Decimal:
-        """计算房费"""
-        check_out_time = timezone.now()
-        days = max(1, (check_out_time - order.check_in_time).days + 1)
-        return order.room.price_per_day * days
+        return order.room_fee
 
     @staticmethod
     def calculate_ac_fee(room_id: str, order: AccommodationOrder) -> Decimal:
-        """计算空调费"""
-        # 从调度器获取实时费用
-        ac_state = scheduler.checkout_room(room_id)
-        return Decimal(str(ac_state.get("cost", 0)))
+        from .models import ACDetailRecord
+        total = sum(Decimal(str(r.cost or 0)) for r in ACDetailRecord.objects.filter(order=order))
+        return total
 
     @staticmethod
     @transaction.atomic
@@ -159,8 +164,12 @@ class CheckOutService:
         # 计算房费
         room_fee = CheckOutService.calculate_room_fee(order)
 
-        # 计算空调费
+        try:
+            scheduler.checkout_room(room_id)
+        except Exception:
+            pass
         ac_fee = CheckOutService.calculate_ac_fee(room_id, order)
+        meal_fee = sum(m.fee for m in MealOrder.objects.filter(order=order))
 
         # 创建空调账单
         ac_bill = ACBill.objects.create(
@@ -170,10 +179,16 @@ class CheckOutService:
             total_cost=ac_fee,
         )
 
-        # 创建总账单
-        total_fee = room_fee + ac_fee
+        # 创建总账单（总费用=房费+空调费+餐饮费-押金）
+        deposit_amount = order.deposit_amount or Decimal("0")
+        total_fee = room_fee + ac_fee + meal_fee - deposit_amount
         bill = AccommodationBill.objects.create(
-            order=order, room_fee=room_fee, ac_fee=ac_fee, total_fee=total_fee
+            order=order,
+            room_fee=room_fee,
+            ac_fee=ac_fee,
+            meal_fee=meal_fee,
+            deposit_amount=deposit_amount,
+            total_fee=total_fee,
         )
 
         return bill
@@ -243,6 +258,14 @@ class ACService:
         # 更新数据库状态
         ACService._update_db_state(room_id)
 
+        try:
+            order = AccommodationOrder.objects.get(room_id=room_id, status="active")
+            price = order.room.price_per_day
+            order.room_fee = (order.room_fee or Decimal("0")) + price
+            order.save()
+        except AccommodationOrder.DoesNotExist:
+            pass
+
         return result
 
     @staticmethod
@@ -252,6 +275,14 @@ class ACService:
 
         # 更新数据库状态
         ACService._update_db_state(room_id)
+
+        try:
+            order = AccommodationOrder.objects.get(room_id=room_id, status="active")
+            price = order.room.price_per_day
+            order.room_fee = (order.room_fee or Decimal("0")) + price
+            order.save()
+        except AccommodationOrder.DoesNotExist:
+            pass
 
         return result
 
@@ -347,3 +378,96 @@ class ReportService:
         )
 
         return list(records)
+
+
+class ReservationService:
+    """预定服务"""
+
+    @staticmethod
+    def reserve_room(name: str, phone: str, room_id: str) -> Tuple[bool, str]:
+        """创建预定：仅允许对空闲房间进行预定"""
+        if not name or not phone or not room_id:
+            return False, "预定信息不完整", None
+
+        try:
+            room = Room.objects.get(room_id=room_id)
+        except Room.DoesNotExist:
+            return False, "房间不存在", None
+
+        if room.status == "occupied":
+            return False, "房间已被入住，无法预定", None
+        # 已有有效预定也不允许再次预定
+        if room.status == "reserved" or Reservation.objects.filter(room=room, is_active=True).exists():
+            return False, "房间已被预定", None
+
+        # 创建或更新预定记录
+        reserv, _ = Reservation.objects.update_or_create(
+            room=room,
+            defaults={"name": name, "phone": phone, "is_active": True},
+        )
+
+        room.set_reserved()
+        return True, "预定成功", {
+            "room_id": room.room_id,
+            "room_type": room.get_room_type_display(),
+            "customer_name": reserv.name,
+            "phone": reserv.phone,
+        }
+
+
+class MealService:
+    """餐饮服务"""
+
+    @staticmethod
+    @transaction.atomic
+    def create_meal_order(room_id: str, items: List[dict]) -> Tuple[bool, str, Optional[dict]]:
+        if not room_id or not items:
+            return False, "缺少房间或菜品信息", None
+        try:
+            order = AccommodationOrder.objects.get(room_id=room_id, status="active")
+        except AccommodationOrder.DoesNotExist:
+            return False, "房间未在住，无法下单", None
+
+        total = Decimal("0")
+        norm_items = []
+        for it in items:
+            name = str(it.get("name", ""))
+            qty = int(it.get("qty", 1))
+            price = Decimal(str(it.get("price", 0)))
+            line = price * qty
+            total += line
+            norm_items.append({"name": name, "qty": qty, "price": float(price), "line": float(line)})
+
+        meal = MealOrder.objects.create(
+            order=order,
+            room=order.room,
+            items=json.dumps(norm_items, ensure_ascii=False),
+            fee=total,
+        )
+
+        return True, "下单成功", {
+            "meal_id": meal.meal_id,
+            "room_id": room_id,
+            "fee": float(meal.fee),
+            "items": norm_items,
+        }
+
+    @staticmethod
+    def list_meal_orders(room_id: str) -> List[dict]:
+        try:
+            order = AccommodationOrder.objects.get(room_id=room_id, status="active")
+        except AccommodationOrder.DoesNotExist:
+            return []
+        result = []
+        for m in MealOrder.objects.filter(order=order).order_by("-created_at"):
+            try:
+                items = json.loads(m.items or "[]")
+            except Exception:
+                items = []
+            result.append({
+                "meal_id": m.meal_id,
+                "fee": float(m.fee),
+                "items": items,
+                "created_at": m.created_at.strftime("%Y-%m-%d %H:%M"),
+            })
+        return result

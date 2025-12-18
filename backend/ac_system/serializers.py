@@ -12,6 +12,7 @@ from .models import (
     ACBill,
     AccommodationBill,
     StatisticsReport,
+    MealOrder,
 )
 
 
@@ -85,6 +86,7 @@ class CheckInRequestSerializer(serializers.Serializer):
     room_id = serializers.CharField(max_length=10)
     check_in_date = serializers.DateTimeField(required=False)
     check_out_date = serializers.DateTimeField(required=False)
+    deposit_amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
 
 
 class CheckOutRequestSerializer(serializers.Serializer):
@@ -105,3 +107,24 @@ class ACControlRequestSerializer(serializers.Serializer):
         choices=["low", "medium", "high"], required=False
     )
     mode = serializers.ChoiceField(choices=["cooling", "heating"], required=False)
+
+
+class ReservationRequestSerializer(serializers.Serializer):
+    """预定请求序列化器"""
+
+    name = serializers.CharField(max_length=50)
+    phone = serializers.CharField(max_length=11)
+    room_id = serializers.CharField(max_length=10)
+
+
+class MealOrderRequestSerializer(serializers.Serializer):
+    """订餐请求序列化器"""
+
+    room_id = serializers.CharField(max_length=10)
+    items = serializers.ListField(child=serializers.DictField())
+
+
+class MealOrderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MealOrder
+        fields = "__all__"

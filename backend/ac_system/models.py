@@ -17,6 +17,7 @@ class Room(models.Model):
 
     STATUS_CHOICES = [
         ("available", "空闲"),
+        ("reserved", "已预定"),
         ("occupied", "已入住"),
         ("maintenance", "维护中"),
     ]
@@ -47,6 +48,7 @@ class Room(models.Model):
         return f"房间 {self.room_id}"
 
     def is_available(self):
+        # 仅完全空闲的房间可直接办理入住；预定房间视为不可用
         return self.status == "available"
 
     def set_occupied(self):
@@ -55,6 +57,10 @@ class Room(models.Model):
 
     def set_available(self):
         self.status = "available"
+        self.save()
+
+    def set_reserved(self):
+        self.status = "reserved"
         self.save()
 
 
@@ -100,6 +106,10 @@ class AccommodationOrder(models.Model):
     room_fee = models.DecimalField(
         max_digits=10, decimal_places=2, default=0, verbose_name="房费"
     )
+    deposit_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0, verbose_name="押金"
+    )
+    deposit_paid = models.BooleanField(default=False, verbose_name="押金已收取")
 
     class Meta:
         db_table = "accommodation_order"
@@ -232,6 +242,12 @@ class AccommodationBill(models.Model):
     ac_fee = models.DecimalField(
         max_digits=10, decimal_places=2, default=0, verbose_name="空调费"
     )
+    meal_fee = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0, verbose_name="餐饮费"
+    )
+    deposit_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0, verbose_name="已收押金"
+    )
     total_fee = models.DecimalField(
         max_digits=10, decimal_places=2, default=0, verbose_name="总费用"
     )
@@ -245,6 +261,27 @@ class AccommodationBill(models.Model):
 
     def __str__(self):
         return f"住宿账单 {self.bill_id}"
+
+
+class MealOrder(models.Model):
+    """订餐订单（关联入住订单）"""
+
+    meal_id = models.AutoField(primary_key=True, verbose_name="餐饮订单ID")
+    order = models.ForeignKey(
+        AccommodationOrder, on_delete=models.CASCADE, verbose_name="关联入住订单"
+    )
+    room = models.ForeignKey(Room, on_delete=models.CASCADE, verbose_name="房间")
+    items = models.TextField(verbose_name="菜品明细(JSON)")
+    fee = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="总金额")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+
+    class Meta:
+        db_table = "meal_order"
+        verbose_name = "餐饮订单"
+        verbose_name_plural = "餐饮订单"
+
+    def __str__(self):
+        return f"餐饮订单 {self.meal_id} - 房间 {self.room.room_id}"
 
 
 class StatisticsReport(models.Model):
@@ -279,3 +316,22 @@ class StatisticsReport(models.Model):
 
     def __str__(self):
         return f"{self.get_report_type_display()} {self.start_date} - {self.end_date}"
+
+
+class Reservation(models.Model):
+    """房间预定记录（一个房间同时只允许一个有效预定）"""
+
+    reservation_id = models.AutoField(primary_key=True, verbose_name="预定ID")
+    room = models.OneToOneField(Room, on_delete=models.CASCADE, verbose_name="房间")
+    name = models.CharField(max_length=50, verbose_name="预定人姓名")
+    phone = models.CharField(max_length=11, verbose_name="预定人手机号")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="预定时间")
+    is_active = models.BooleanField(default=True, verbose_name="是否有效")
+
+    class Meta:
+        db_table = "reservation"
+        verbose_name = "房间预定"
+        verbose_name_plural = "房间预定"
+
+    def __str__(self):
+        return f"预定 {self.reservation_id} - 房间 {self.room.room_id} - {self.name}"

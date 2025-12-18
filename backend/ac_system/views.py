@@ -9,7 +9,7 @@ from rest_framework import status
 from django.utils import timezone
 from datetime import datetime
 
-from .models import Room, Customer, AccommodationOrder, ACState, AccommodationBill
+from .models import Room, Customer, AccommodationOrder, ACState, AccommodationBill, Reservation, MealOrder
 from .serializers import (
     RoomSerializer,
     AccommodationOrderSerializer,
@@ -18,8 +18,10 @@ from .serializers import (
     CheckInRequestSerializer,
     CheckOutRequestSerializer,
     ACControlRequestSerializer,
+    ReservationRequestSerializer,
+    MealOrderRequestSerializer,
 )
-from .services import CheckInService, CheckOutService, ACService, ReportService
+from .services import CheckInService, CheckOutService, ACService, ReportService, ReservationService, MealService
 
 
 class RoomListView(APIView):
@@ -37,8 +39,14 @@ class RoomListView(APIView):
                 "status_display": room.get_status_display(),
                 "price_per_day": float(room.price_per_day),
                 "is_occupied": room.status == "occupied",
+                "is_reserved": room.status == "reserved",
                 "guest": None,
             }
+            if room.status == "reserved":
+                reserv = Reservation.objects.filter(room=room, is_active=True).first()
+                if reserv:
+                    room_data["reserved_customer_name"] = reserv.name
+                    room_data["reserved_phone"] = reserv.phone
             # 如果已入住，获取客人信息
             if room.status == "occupied":
                 active_order = AccommodationOrder.objects.filter(
@@ -59,6 +67,7 @@ class AvailableRoomListView(APIView):
     """可用房间列表"""
 
     def get(self, request):
+        # 仅返回完全空闲的房间，已预定和已入住的房间都不在此列表中
         rooms = Room.objects.filter(status="available")
         print(f"Available rooms count: {rooms.count()}")  # Debug log
         serializer = RoomSerializer(rooms, many=True)
@@ -88,7 +97,7 @@ class CheckInView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 验证房间
+        # 验证房间（仅排除已入住）
         success, msg, room = CheckInService.validate_room(data["room_id"])
         if not success:
             return Response(
@@ -96,10 +105,39 @@ class CheckInView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # 如果房间是已预定状态，只允许预定人办理入住
+        if room.status == "reserved":
+            reserv = Reservation.objects.filter(room=room, is_active=True).first()
+            if not reserv:
+                return Response(
+                    {
+                        "code": 400,
+                        "data": None,
+                        "message": "房间处于预定状态，暂不可办理入住",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if reserv.name != data["name"] or reserv.phone != data["phone"]:
+                return Response(
+                    {
+                        "code": 400,
+                        "data": None,
+                        "message": "该房间已被其他客户预定",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # 预定人与当前入住人匹配，标记预定为失效，让后续 create_order 正常将房间置为已入住
+            reserv.is_active = False
+            reserv.save()
+
         # 创建订单
         try:
             order = CheckInService.create_order(
-                customer, room, data.get("check_in_date"), data.get("check_out_date")
+                customer,
+                room,
+                data.get("check_in_date"),
+                data.get("check_out_date"),
+                data.get("deposit_amount") or 0,
             )
 
             return Response(
@@ -183,10 +221,11 @@ class BillDetailView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 计算费用
         room_fee = CheckOutService.calculate_room_fee(order)
-        ac_state = ACService.get_state(room_id)
-        ac_fee = Decimal(str(ac_state.get("cost", 0)))
+        from .models import ACDetailRecord
+        ac_fee = sum(Decimal(str(r.cost or 0)) for r in ACDetailRecord.objects.filter(order=order))
+        meal_fee = sum(m.fee for m in MealOrder.objects.filter(order=order))
+        deposit_amount = order.deposit_amount or 0
 
         return Response(
             {
@@ -197,11 +236,35 @@ class BillDetailView(APIView):
                     "check_in_time": order.check_in_time.strftime("%Y-%m-%d %H:%M"),
                     "room_fee": round(float(room_fee), 2),
                     "ac_fee": round(float(ac_fee), 2),
-                    "total_fee": round(float(room_fee + ac_fee), 2),
+                    "meal_fee": round(float(meal_fee), 2),
+                    "deposit_amount": round(float(deposit_amount), 2),
+                    "total_fee": round(float(room_fee + ac_fee + meal_fee - deposit_amount), 2),
                 },
                 "message": "success",
             }
         )
+
+
+class MealOrderView(APIView):
+    """酒店订餐：创建订餐订单"""
+
+    def post(self, request):
+        serializer = MealOrderRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"code": 400, "data": None, "message": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+        success, msg, payload = MealService.create_meal_order(data["room_id"], data["items"])
+        if success:
+            return Response({"code": 200, "data": payload, "message": msg})
+        return Response({"code": 400, "data": None, "message": msg}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class MealOrderListView(APIView):
+    """查询房间的订餐记录（在住期间）"""
+
+    def get(self, request, room_id):
+        data = MealService.list_meal_orders(room_id)
+        return Response({"code": 200, "data": data, "message": "success"})
 
 
 class ACControlView(APIView):
@@ -275,6 +338,68 @@ class ACMonitorView(APIView):
         states = ACService.get_all_states()
         return Response({"code": 200, "data": states, "message": "success"})
 
+class ACDetailListView(APIView):
+    """获取当前入住的空调运行详单"""
+
+    def get(self, request, room_id):
+        success, msg, order = CheckOutService.get_active_order(room_id)
+        if not success or not order:
+            return Response(
+                {"code": 400, "data": None, "message": msg},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from .models import ACDetailRecord
+
+        records = ACDetailRecord.objects.filter(order=order).order_by("start_time")
+
+        total_energy = 0.0
+        total_cost = Decimal("0.00")
+        total_seconds = 0
+        details = []
+
+        for idx, r in enumerate(records, start=1):
+            start = r.start_time
+            end = r.end_time or timezone.now()
+            duration_seconds = int((end - start).total_seconds())
+
+            energy = round(float(r.energy_consumed or 0), 2)
+            cost = Decimal(str(r.cost or 0))
+
+            total_energy += energy
+            total_cost += cost
+            total_seconds += duration_seconds
+
+            details.append(
+                {
+                    "seq": idx,
+                    "start_time": start.strftime("%Y-%m-%d %H:%M:%S"),
+                    "end_time": end.strftime("%Y-%m-%d %H:%M:%S") if end else None,
+                    "duration_seconds": duration_seconds,
+                    "start_temp": round(float(r.start_temp), 2),
+                    "end_temp": None if r.end_temp is None else round(float(r.end_temp), 2),
+                    "target_temp": round(float(r.target_temp), 2),
+                    "fan_speed": r.fan_speed,
+                    "mode": r.mode,
+                    "energy": energy,
+                    "cost": round(float(cost), 2),
+                }
+            )
+
+        data = {
+            "room_id": room_id,
+            "order_id": order.order_id,
+            "summary": {
+                "total_records": len(details),
+                "total_duration_seconds": total_seconds,
+                "total_energy": round(float(total_energy), 2),
+                "total_cost": round(float(total_cost), 2),
+            },
+            "details": details,
+        }
+
+        return Response({"code": 200, "data": data, "message": "success"})
+
 
 class OrderListView(APIView):
     """订单列表"""
@@ -311,3 +436,105 @@ class ReportView(APIView):
             report = ReportService.generate_daily_report(date)
 
         return Response({"code": 200, "data": report, "message": "success"})
+
+class TestLogView(APIView):
+    """读取测试脚本输出日志"""
+    def get(self, request):
+        import os
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(base_dir, "..", "monitor_output.log")
+        lines = []
+        try:
+            if os.path.exists(log_path):
+                with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                    # 限制最大返回长度
+                    if len(content) > 100000:
+                        content = content[-100000:]
+                    lines = content.splitlines()[-500:]
+            return Response({"code": 200, "data": {"lines": lines, "path": log_path}, "message": "success"})
+        except Exception as e:
+            return Response({"code": 500, "data": {"lines": []}, "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ReservationView(APIView):
+    """房间预定"""
+
+    def post(self, request):
+        serializer = ReservationRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"code": 400, "data": None, "message": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        success, msg, payload = ReservationService.reserve_room(
+            data["name"], data["phone"], data["room_id"]
+        )
+        if success:
+            return Response(
+                {"code": 200, "data": payload, "message": msg}
+            )
+        else:
+            return Response(
+                {"code": 400, "data": None, "message": msg},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
+class MealOrderView(APIView):
+    """酒店订餐"""
+
+    def post(self, request):
+        serializer = MealOrderRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"code": 400, "data": None, "message": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        room_id = data["room_id"]
+
+        success, msg, order = CheckOutService.get_active_order(room_id)
+        if not success:
+            return Response(
+                {"code": 400, "data": None, "message": msg},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        items = data["items"]
+        try:
+            total_fee = Decimal(
+                str(
+                    sum(
+                        (Decimal(str(i.get("price", 0))) * int(i.get("count", 1)))
+                        for i in items
+                    )
+                )
+            )
+        except Exception:
+            return Response(
+                {"code": 400, "data": None, "message": "菜品价格格式错误"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        meal = MealOrder.objects.create(
+            order=order,
+            room=order.room,
+            items=str(items),
+            fee=total_fee,
+        )
+
+        return Response(
+            {
+                "code": 200,
+                "data": {
+                    "meal_id": meal.meal_id,
+                    "room_id": room_id,
+                    "fee": float(meal.fee),
+                },
+                "message": "订餐成功",
+            }
+        )

@@ -3,7 +3,13 @@ import { createRouter, createWebHistory } from 'vue-router'
 const routes = [
   {
     path: '/',
-    redirect: '/reception'
+    redirect: '/login'
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('../views/Login.vue'),
+    meta: { title: '前台登录 - 波普特廉价酒店' }
   },
   // 每个房间独立的空调控制页面
   {
@@ -40,7 +46,13 @@ const routes = [
     path: '/reception',
     name: 'Reception',
     component: () => import('../views/Reception.vue'),
-    meta: { title: '前台服务' }
+    meta: { title: '前台服务 - 波普特廉价酒店', requireFrontdesk: true }
+  },
+  {
+    path: '/reservation',
+    name: 'ReservationPublic',
+    component: () => import('../views/ReservationPage.vue'),
+    meta: { title: '在线预定 - 波普特廉价酒店' }
   },
   {
     path: '/monitor',
@@ -62,7 +74,16 @@ const router = createRouter({
 })
 
 router.beforeEach((to, from, next) => {
-  document.title = to.meta.title || '波普特酒店空调系统'
+  document.title = to.meta.title || '波普特廉价酒店'
+  const loggedIn = localStorage.getItem('frontdeskLogin') === 'true'
+  if (to.meta && to.meta.requireFrontdesk && !loggedIn) {
+    next({ path: '/login' })
+    return
+  }
+  if (to.path === '/login' && loggedIn) {
+    next({ path: '/reception' })
+    return
+  }
   next()
 })
 
