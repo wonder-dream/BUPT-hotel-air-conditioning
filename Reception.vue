@@ -23,6 +23,13 @@
       >
         房间状态
       </el-button>
+      <el-button 
+        type="danger"
+        size="large"
+        @click="handleLogout"
+      >
+        退出登录
+      </el-button>
     </div>
 
     <!-- 主内容区 -->
@@ -114,6 +121,9 @@
           <el-button type="default" size="large" @click="handleShowDetails" class="print-btn">
             显示详单
           </el-button>
+          <el-button type="default" size="large" @click="printBill" class="print-btn">
+            打印账单
+          </el-button>
         </div>
       </div>
 
@@ -167,7 +177,7 @@
       </div>
     </div>
     <el-dialog v-model="detailDialogVisible" title="空调运行详单" width="800px">
-      <div class="detail-summary">
+      <div ref="printArea" class="detail-summary">
         <div class="info-item">
           <span class="label">房间号:</span>
           <span class="value highlight">{{ acDetails?.room_id }}</span>
@@ -192,7 +202,11 @@
       <el-table :data="acDetails?.details || []" style="width: 100%" height="380">
         <el-table-column prop="seq" label="序号" width="70" />
         <el-table-column prop="start_time" label="开始时间" width="160" />
-        <el-table-column prop="end_time" label="结束时间" width="160" />
+        <el-table-column label="结束时间" width="160">
+          <template #default="{ row }">
+            {{ row.end_time || new Date().toLocaleString('zh-CN') }}
+          </template>
+        </el-table-column>
         <el-table-column label="时长" width="100">
           <template #default="{ row }">
             {{ row.duration_seconds < 60 ? `${row.duration_seconds}秒` : `${(row.duration_seconds/60).toFixed(1)}分钟` }}
@@ -215,7 +229,7 @@
       </el-table>
       <template #footer>
         <el-button @click="detailDialogVisible = false">关闭</el-button>
-        <el-button type="primary" @click="window.print()">打印</el-button>
+        <el-button type="primary" @click="printDetails">打印</el-button>
       </template>
     </el-dialog>
   </div>
@@ -226,10 +240,12 @@ import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { User, Phone, Postcard, Clock, Refresh } from '@element-plus/icons-vue'
 import api from '../api'
+import { useRouter } from 'vue-router'
 
 const activeTab = ref('checkin')
 const availableRooms = ref([])
 const allRooms = ref([])
+const router = useRouter()
 
 // 入住表单
 const checkInForm = ref({
@@ -247,6 +263,7 @@ const checkOutForm = ref({
 const billDetail = ref(null)
 const detailDialogVisible = ref(false)
 const acDetails = ref(null)
+const printArea = ref(null)
 
 // 获取可用房间
 const loadAvailableRooms = async () => {
@@ -265,7 +282,8 @@ const loadAllRooms = async () => {
   try {
     const res = await api.getRooms()
     if (res.code === 200) {
-      allRooms.value = res.data
+      const blocked = ['101','102','103','104','105']
+      allRooms.value = (res.data || []).filter(r => !blocked.includes(String(r.room_id)))
     }
   } catch (error) {
     console.error('获取房间状态失败:', error)
@@ -375,6 +393,112 @@ const handleShowDetails = async () => {
 onMounted(() => {
   loadAvailableRooms()
 })
+
+const handleLogout = () => {
+  localStorage.removeItem('frontdeskLogin')
+  localStorage.removeItem('frontdeskUser')
+  ElMessage.success('已退出登录')
+  router.replace('/login')
+}
+
+const printDetails = () => {
+  try {
+    const html = printArea.value ? printArea.value.innerHTML : ''
+    const w = window.open('', '_blank', 'width=900,height=600')
+    if (!w) return
+    w.document.write(`
+      <html>
+        <head>
+          <title>空调运行详单</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; }
+            .info-item { display: flex; margin-bottom: 10px; }
+            .label { width: 100px; color: #666; }
+            .value { color: #333; }
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            th, td { border: 1px solid #ddd; padding: 8px; font-size: 12px; }
+            th { background: #f5f7fa; }
+            .summary { margin-bottom: 10px; }
+          </style>
+        </head>
+        <body>
+          <h2>空调运行详单</h2>
+          <div class="summary">
+            <div>调度次数: ${acDetails.value?.summary?.total_records ?? 0}</div>
+          </div>
+          ${html}
+        </body>
+      </html>
+    `)
+    w.document.close()
+    w.focus()
+    w.print()
+    w.close()
+  } catch (e) {
+    console.error('打印失败:', e)
+  }
+}
+
+const printBill = async () => {
+  if (!billDetail.value) {
+    ElMessage.warning('请先获取账单')
+    return
+  }
+  const roomId = checkOutForm.value.room_id
+  let scheduleCount = acDetails.value?.room_id === roomId ? (acDetails.value?.summary?.total_records ?? 0) : null
+  try {
+    if (scheduleCount == null && roomId) {
+      const res = await api.getACDetails(roomId)
+      if (res.code === 200) {
+        acDetails.value = res.data
+        scheduleCount = acDetails.value?.summary?.total_records ?? 0
+      }
+    }
+  } catch {}
+  const w = window.open('', '_blank', 'width=900,height=600')
+  if (!w) return
+  const nowStr = new Date().toLocaleString('zh-CN')
+  w.document.write(`
+    <html>
+      <head>
+        <title>结账账单</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          h2 { margin-bottom: 10px; }
+          .meta { color: #666; margin-bottom: 15px; }
+          .info-item { display: flex; margin-bottom: 10px; }
+          .label { width: 120px; color: #666; }
+          .value { color: #333; }
+          .total { border-top: 1px solid #eee; padding-top: 12px; margin-top: 8px; font-size: 18px; color: #f56c6c; }
+        </style>
+      </head>
+      <body>
+        <h2>波普特廉价酒店 - 结账账单</h2>
+        <div class="meta">房间号: ${roomId || '--'} · 出单时间: ${nowStr}</div>
+        <div class="info-item">
+          <span class="label">调度次数:</span>
+          <span class="value">${scheduleCount ?? 0}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">房费:</span>
+          <span class="value">¥${formatMoney(billDetail.value.room_fee)}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">空调使用费:</span>
+          <span class="value">¥${formatMoney(billDetail.value.ac_fee)}</span>
+        </div>
+        <div class="info-item total">
+          <span class="label">总计:</span>
+          <span class="value">¥${formatMoney(billDetail.value.total_fee)}</span>
+        </div>
+      </body>
+    </html>
+  `)
+  w.document.close()
+  w.focus()
+  w.print()
+  w.close()
+}
 </script>
 
 <style scoped>
@@ -382,16 +506,30 @@ onMounted(() => {
   display: flex;
   min-height: 100vh;
   background: #f5f7fa;
+  position: relative;
+}
+
+.reception-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url('https://images.unsplash.com/photo-1469796466634-4f501ee0337f?q=80&w=1920&auto=format&fit=crop');
+  background-size: cover;
+  background-position: center;
+  filter: blur(1.5px);
+  opacity: 0.28;
+  z-index: -1;
 }
 
 .sidebar {
-  width: 200px;
+  width: 220px;
   background: white;
   padding: 30px 20px;
   display: flex;
   flex-direction: column;
   gap: 15px;
   box-shadow: 2px 0 10px rgba(0, 0, 0, 0.05);
+  border-radius: 10px;
 }
 
 .sidebar .el-button {
@@ -401,7 +539,7 @@ onMounted(() => {
 
 .main-content {
   flex: 1;
-  padding: 40px;
+  padding: 30px 40px;
   display: flex;
   gap: 40px;
 }
@@ -433,6 +571,7 @@ h2 {
   border-radius: 10px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
   margin-top: 30px;
+  border: 1px solid #eef2f7;
 }
 
 .result-panel h3 {
@@ -523,6 +662,7 @@ h2 {
   padding: 20px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
   transition: transform 0.2s, box-shadow 0.2s;
+  border: 1px solid #eef2f7;
 }
 
 .room-card:hover {
