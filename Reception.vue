@@ -24,6 +24,13 @@
         房间状态
       </el-button>
       <el-button 
+        :type="activeTab === 'meal' ? 'primary' : 'default'"
+        size="large"
+        @click="activeTab = 'meal'"
+      >
+        酒店订餐
+      </el-button>
+      <el-button 
         type="danger"
         size="large"
         @click="handleLogout"
@@ -56,6 +63,9 @@
                 :value="room.room_id"
               />
             </el-select>
+          </el-form-item>
+          <el-form-item label="押金：">
+            <el-input v-model.number="checkInForm.deposit_amount" placeholder="请输入押金金额" />
           </el-form-item>
           <el-form-item>
             <el-button type="primary" @click="handleCheckIn">确认</el-button>
@@ -110,6 +120,14 @@
           <div class="info-item">
             <span class="label">空调使用费:</span>
             <span class="value highlight">¥{{ formatMoney(billDetail.ac_fee) }}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">餐饮费:</span>
+            <span class="value highlight">¥{{ formatMoney(billDetail.meal_fee || 0) }}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">押金抵扣:</span>
+            <span class="value highlight">-¥{{ formatMoney(billDetail.deposit_amount || 0) }}</span>
           </div>
           <div class="info-item total">
             <span class="label">总计:</span>
@@ -208,6 +226,41 @@
         </div>
       </div>
 
+      <!-- 酒店订餐 -->
+      <div v-if="activeTab === 'meal'" class="meal-panel">
+        <h2>酒店订餐</h2>
+        <el-form :model="mealForm" label-width="100px" class="checkout-form" @submit.prevent="handleOrderMeal">
+          <el-form-item label="房间号：">
+            <el-input v-model="mealForm.room_id" placeholder="请输入在住房间号" />
+          </el-form-item>
+        </el-form>
+        <div class="menu-list">
+          <div class="menu-item" v-for="(m, idx) in menuItems" :key="idx">
+            <div class="menu-name">{{ m.name }}</div>
+            <div class="menu-price">¥{{ m.price }}</div>
+            <el-input-number v-model="m.qty" :min="0" :max="20" />
+          </div>
+        </div>
+        <div class="meal-summary">
+          <span>合计：¥{{ formatMoney(mealTotal) }}</span>
+          <el-button type="primary" :disabled="mealTotal<=0 || !mealForm.room_id" @click="handleOrderMeal">提交订单</el-button>
+        </div>
+        <div class="meal-orders" v-if="mealOrders.length">
+          <h3>近期订餐</h3>
+          <el-table :data="mealOrders" style="width: 100%" height="260">
+            <el-table-column prop="created_at" label="时间" width="160" />
+            <el-table-column label="明细">
+              <template #default="{ row }">
+                <span v-for="(it,i) in row.items" :key="i">{{ it.name }}×{{ it.qty }}&nbsp;</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="金额" width="120">
+              <template #default="{ row }">¥{{ formatMoney(row.fee) }}</template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </div>
+
     </div>
     <el-dialog v-model="detailDialogVisible" title="空调运行详单" width="800px">
       <div ref="printArea" class="detail-summary">
@@ -269,7 +322,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { User, Phone, Postcard, Clock, Refresh } from '@element-plus/icons-vue'
 import api from '../api'
@@ -286,7 +339,8 @@ const checkInForm = ref({
   name: '',
   phone: '',
   id_card: '',
-  room_id: ''
+  room_id: '',
+  deposit_amount: 0
 })
 const checkInResult = ref(null)
 
@@ -298,6 +352,18 @@ const billDetail = ref(null)
 const detailDialogVisible = ref(false)
 const acDetails = ref(null)
 const printArea = ref(null)
+
+// 订餐
+const mealForm = ref({ room_id: '' })
+const menuItems = ref([
+  { name: '早餐套餐', price: 30, qty: 0 },
+  { name: '扬州炒饭', price: 25, qty: 0 },
+  { name: '牛肉面', price: 28, qty: 0 },
+  { name: '可乐', price: 5, qty: 0 },
+  { name: '橙汁', price: 8, qty: 0 }
+])
+const mealOrders = ref([])
+const mealTotal = computed(() => menuItems.value.reduce((s, m) => s + m.price * (m.qty || 0), 0))
 
 // 获取可用房间
 const loadAvailableRooms = async () => {
@@ -545,6 +611,40 @@ const printBill = async () => {
   w.print()
   w.close()
 }
+
+const handleOrderMeal = async () => {
+  if (!mealForm.value.room_id) {
+    ElMessage.warning('请输入房间号')
+    return
+  }
+  const items = menuItems.value.filter(m => m.qty > 0).map(m => ({ name: m.name, qty: m.qty, price: m.price }))
+  if (!items.length) {
+    ElMessage.warning('请先选择菜品')
+    return
+  }
+  try {
+    const res = await api.orderMeal({ room_id: mealForm.value.room_id, items })
+    if (res.code === 200) {
+      ElMessage.success('下单成功')
+      await loadMealOrders()
+      menuItems.value.forEach(m => (m.qty = 0))
+    } else {
+      ElMessage.error(res.message || '下单失败')
+    }
+  } catch (e) {
+    ElMessage.error('下单失败')
+  }
+}
+
+const loadMealOrders = async () => {
+  if (!mealForm.value.room_id) return
+  try {
+    const res = await api.getMealOrders(mealForm.value.room_id)
+    if (res.code === 200) {
+      mealOrders.value = res.data || []
+    }
+  } catch {}
+}
 </script>
 
 <style scoped>
@@ -589,6 +689,28 @@ const printBill = async () => {
   display: flex;
   gap: 40px;
 }
+
+.meal-panel {
+  flex: 1;
+}
+.menu-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin: 10px 0 16px;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff;
+  border: 1px solid #eef2f7;
+  padding: 12px;
+  border-radius: 8px;
+}
+.menu-name { font-weight: 500; }
+.menu-price { color: #666; }
+.meal-summary { display: flex; align-items: center; gap: 16px; margin-top: 6px; }
 
 .checkin-panel,
 .checkout-panel {

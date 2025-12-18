@@ -9,7 +9,7 @@ from rest_framework import status
 from django.utils import timezone
 from datetime import datetime
 
-from .models import Room, Customer, AccommodationOrder, ACState, AccommodationBill, Reservation
+from .models import Room, Customer, AccommodationOrder, ACState, AccommodationBill, Reservation, MealOrder
 from .serializers import (
     RoomSerializer,
     AccommodationOrderSerializer,
@@ -19,8 +19,9 @@ from .serializers import (
     CheckOutRequestSerializer,
     ACControlRequestSerializer,
     ReservationRequestSerializer,
+    MealOrderRequestSerializer,
 )
-from .services import CheckInService, CheckOutService, ACService, ReportService, ReservationService
+from .services import CheckInService, CheckOutService, ACService, ReportService, ReservationService, MealService
 
 
 class RoomListView(APIView):
@@ -132,7 +133,11 @@ class CheckInView(APIView):
         # 创建订单
         try:
             order = CheckInService.create_order(
-                customer, room, data.get("check_in_date"), data.get("check_out_date")
+                customer,
+                room,
+                data.get("check_in_date"),
+                data.get("check_out_date"),
+                data.get("deposit_amount") or 0,
             )
 
             return Response(
@@ -219,6 +224,8 @@ class BillDetailView(APIView):
         room_fee = CheckOutService.calculate_room_fee(order)
         from .models import ACDetailRecord
         ac_fee = sum(Decimal(str(r.cost or 0)) for r in ACDetailRecord.objects.filter(order=order))
+        meal_fee = sum(m.fee for m in MealOrder.objects.filter(order=order))
+        deposit_amount = order.deposit_amount or 0
 
         return Response(
             {
@@ -229,11 +236,35 @@ class BillDetailView(APIView):
                     "check_in_time": order.check_in_time.strftime("%Y-%m-%d %H:%M"),
                     "room_fee": round(float(room_fee), 2),
                     "ac_fee": round(float(ac_fee), 2),
-                    "total_fee": round(float(room_fee + ac_fee), 2),
+                    "meal_fee": round(float(meal_fee), 2),
+                    "deposit_amount": round(float(deposit_amount), 2),
+                    "total_fee": round(float(room_fee + ac_fee + meal_fee - deposit_amount), 2),
                 },
                 "message": "success",
             }
         )
+
+
+class MealOrderView(APIView):
+    """酒店订餐：创建订餐订单"""
+
+    def post(self, request):
+        serializer = MealOrderRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"code": 400, "data": None, "message": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+        success, msg, payload = MealService.create_meal_order(data["room_id"], data["items"])
+        if success:
+            return Response({"code": 200, "data": payload, "message": msg})
+        return Response({"code": 400, "data": None, "message": msg}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class MealOrderListView(APIView):
+    """查询房间的订餐记录（在住期间）"""
+
+    def get(self, request, room_id):
+        data = MealService.list_meal_orders(room_id)
+        return Response({"code": 200, "data": data, "message": "success"})
 
 
 class ACControlView(APIView):
@@ -450,3 +481,60 @@ class ReservationView(APIView):
                 {"code": 400, "data": None, "message": msg},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+
+class MealOrderView(APIView):
+    """酒店订餐"""
+
+    def post(self, request):
+        serializer = MealOrderRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"code": 400, "data": None, "message": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        room_id = data["room_id"]
+
+        success, msg, order = CheckOutService.get_active_order(room_id)
+        if not success:
+            return Response(
+                {"code": 400, "data": None, "message": msg},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        items = data["items"]
+        try:
+            total_fee = Decimal(
+                str(
+                    sum(
+                        (Decimal(str(i.get("price", 0))) * int(i.get("count", 1)))
+                        for i in items
+                    )
+                )
+            )
+        except Exception:
+            return Response(
+                {"code": 400, "data": None, "message": "菜品价格格式错误"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        meal = MealOrder.objects.create(
+            order=order,
+            room=order.room,
+            items=str(items),
+            fee=total_fee,
+        )
+
+        return Response(
+            {
+                "code": 200,
+                "data": {
+                    "meal_id": meal.meal_id,
+                    "room_id": room_id,
+                    "fee": float(meal.fee),
+                },
+                "message": "订餐成功",
+            }
+        )

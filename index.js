@@ -1,84 +1,82 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import axios from 'axios'
 
-const routes = [
-  {
-    path: '/',
-    redirect: '/login'
-  },
-  {
-    path: '/login',
-    name: 'Login',
-    component: () => import('../views/Login.vue'),
-    meta: { title: '前台登录 - 波普特廉价酒店' }
-  },
-  // 每个房间独立的空调控制页面
-  {
-    path: '/room/301',
-    name: 'Room301',
-    component: () => import('../views/CustomerPanel.vue'),
-    meta: { title: '301房间 - 空调控制', roomId: '301' }
-  },
-  {
-    path: '/room/302',
-    name: 'Room302',
-    component: () => import('../views/CustomerPanel.vue'),
-    meta: { title: '302房间 - 空调控制', roomId: '302' }
-  },
-  {
-    path: '/room/303',
-    name: 'Room303',
-    component: () => import('../views/CustomerPanel.vue'),
-    meta: { title: '303房间 - 空调控制', roomId: '303' }
-  },
-  {
-    path: '/room/304',
-    name: 'Room304',
-    component: () => import('../views/CustomerPanel.vue'),
-    meta: { title: '304房间 - 空调控制', roomId: '304' }
-  },
-  {
-    path: '/room/305',
-    name: 'Room305',
-    component: () => import('../views/CustomerPanel.vue'),
-    meta: { title: '305房间 - 空调控制', roomId: '305' }
-  },
-  {
-    path: '/reception',
-    name: 'Reception',
-    component: () => import('../views/Reception.vue'),
-    meta: { title: '前台服务 - 波普特廉价酒店', requireFrontdesk: true }
-  },
-  {
-    path: '/monitor',
-    name: 'Monitor',
-    component: () => import('../views/Monitor.vue'),
-    meta: { title: '空调监控' }
-  },
-  {
-    path: '/report',
-    name: 'Report',
-    component: () => import('../views/Report.vue'),
-    meta: { title: '统计报表' }
+const api = axios.create({
+  baseURL: '/api',
+  timeout: 10000,
+  headers: {
+    'Content-Type': 'application/json'
   }
-]
-
-const router = createRouter({
-  history: createWebHistory(),
-  routes
 })
 
-router.beforeEach((to, from, next) => {
-  document.title = to.meta.title || '波普特廉价酒店'
-  const loggedIn = localStorage.getItem('frontdeskLogin') === 'true'
-  if (to.meta && to.meta.requireFrontdesk && !loggedIn) {
-    next({ path: '/login' })
-    return
+// 响应拦截器
+api.interceptors.response.use(
+  response => {
+    return response.data
+  },
+  error => {
+    console.error('API Error:', error)
+    return Promise.reject(error)
   }
-  if (to.path === '/login' && loggedIn) {
-    next({ path: '/reception' })
-    return
-  }
-  next()
-})
+)
 
-export default router
+export default {
+  // 房间相关
+  getRooms() {
+    return api.get('/rooms/')
+  },
+  getAvailableRooms() {
+    return api.get('/rooms/available/')
+  },
+  
+  // 入住/结账
+  checkIn(data) {
+    return api.post('/checkin/', data)
+  },
+  reserve(data) {
+    return api.post('/reserve/', data)
+  },
+  checkOut(roomId) {
+    return api.post('/checkout/', { room_id: roomId })
+  },
+  getBillDetail(roomId) {
+    return api.get(`/bill/${roomId}/`)
+  },
+  payBill(billId) {
+    return api.post('/pay/', { bill_id: billId })
+  },
+  // 餐饮订餐
+  orderMeal(data) {
+    return api.post('/meal/order/', data)
+  },
+  getMealOrders(roomId) {
+    return api.get(`/meal/orders/${roomId}/`)
+  },
+  
+  // 空调控制
+  acControl(data) {
+    return api.post('/ac/control/', data)
+  },
+  getACState(roomId) {
+    return api.get(`/ac/state/${roomId}/`)
+  },
+  getACMonitor() {
+    return api.get('/ac/monitor/')
+  },
+  getACDetails(roomId) {
+    return api.get(`/ac/details/${roomId}/`)
+  },
+  getTestLog() {
+    return api.get('/test/log/')
+  },
+  
+  // 订单和报表
+  getOrders(status = null) {
+    const params = status ? { status } : {}
+    return api.get('/orders/', { params })
+  },
+  getReport(type = 'daily', date = null) {
+    const params = { type }
+    if (date) params.date = date
+    return api.get('/report/', { params })
+  }
+}
