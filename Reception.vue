@@ -48,11 +48,11 @@
             <el-input v-model="checkInForm.id_card" placeholder="请输入身份证号" />
           </el-form-item>
           <el-form-item label="房间号：">
-            <el-select v-model="checkInForm.room_id" placeholder="选择房间">
+            <el-select v-model="checkInForm.room_id" placeholder="选择或输入房间号" filterable allow-create>
               <el-option 
-                v-for="room in availableRooms" 
+                v-for="room in roomsForCheckIn" 
                 :key="room.room_id"
-                :label="`${room.room_id} - ${room.room_type_display || room.room_type}`"
+                :label="`${room.room_id} - ${room.room_type_display || room.room_type}${room.is_reserved ? '（已预定）' : ''}`"
                 :value="room.room_id"
               />
             </el-select>
@@ -138,12 +138,34 @@
             v-for="room in allRooms" 
             :key="room.room_id" 
             class="room-card"
-            :class="{ 'occupied': room.is_occupied, 'available': !room.is_occupied }"
+            :class="{
+              'occupied': room.is_occupied,
+              'reserved': room.is_reserved && !room.is_occupied,
+              'available': !room.is_occupied && !room.is_reserved
+            }"
           >
             <div class="room-header">
               <span class="room-number">{{ room.room_id }}</span>
-              <el-tag :type="room.is_occupied ? 'danger' : 'success'" size="small">
-                {{ room.is_occupied ? '已入住' : '空闲' }}
+              <el-tag
+                v-if="room.is_occupied"
+                type="danger"
+                size="small"
+              >
+                已入住
+              </el-tag>
+              <el-tag
+                v-else-if="room.is_reserved"
+                type="warning"
+                size="small"
+              >
+                已预定
+              </el-tag>
+              <el-tag
+                v-else
+                type="success"
+                size="small"
+              >
+                空闲
               </el-tag>
             </div>
             <div class="room-type">{{ room.room_type_display || room.room_type }}</div>
@@ -168,13 +190,24 @@
               </div>
             </template>
             <template v-else>
-              <div class="empty-info">
+              <div class="empty-info" v-if="room.is_reserved">
+                <div class="info-row">
+                  <el-icon><User /></el-icon>
+                  <span>{{ room.reserved_customer_name || '—' }}</span>
+                </div>
+                <div class="info-row">
+                  <el-icon><Phone /></el-icon>
+                  <span>{{ room.reserved_phone || '—' }}</span>
+                </div>
+              </div>
+              <div class="empty-info" v-else>
                 <span>暂无入住</span>
               </div>
             </template>
           </div>
         </div>
       </div>
+
     </div>
     <el-dialog v-model="detailDialogVisible" title="空调运行详单" width="800px">
       <div ref="printArea" class="detail-summary">
@@ -244,6 +277,7 @@ import { useRouter } from 'vue-router'
 
 const activeTab = ref('checkin')
 const availableRooms = ref([])
+const roomsForCheckIn = ref([])
 const allRooms = ref([])
 const router = useRouter()
 
@@ -274,6 +308,18 @@ const loadAvailableRooms = async () => {
     }
   } catch (error) {
     console.error('获取房间列表失败:', error)
+  }
+}
+
+// 获取可办理入住的房间（空闲或已预定但未入住）
+const loadRoomsForCheckIn = async () => {
+  try {
+    const res = await api.getRooms()
+    if (res.code === 200) {
+      roomsForCheckIn.value = (res.data || []).filter(r => !r.is_occupied)
+    }
+  } catch (error) {
+    console.error('获取可办理入住房间失败:', error)
   }
 }
 
@@ -323,7 +369,7 @@ const handleCheckIn = async () => {
     if (res.code === 200) {
       checkInResult.value = res.data
       ElMessage.success('入住成功')
-      loadAvailableRooms()
+      loadRoomsForCheckIn()
     } else {
       ElMessage.error(res.message || '入住失败')
     }
@@ -391,7 +437,7 @@ const handleShowDetails = async () => {
 }
 
 onMounted(() => {
-  loadAvailableRooms()
+  loadRoomsForCheckIn()
 })
 
 const handleLogout = () => {
@@ -676,6 +722,10 @@ h2 {
 
 .room-card.available {
   border-left: 4px solid #67c23a;
+}
+
+.room-card.reserved {
+  border-left: 4px solid #e6a23c;
 }
 
 .room-header {

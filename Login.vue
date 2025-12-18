@@ -23,6 +23,8 @@
   import { ref } from 'vue'
   import { ElMessage } from 'element-plus'
   import { useRouter } from 'vue-router'
+  const bgUrl = new URL('../../hotel.jpg', import.meta.url).href
+  const backgroundImageUrl = `url(${bgUrl})`
   
   const router = useRouter()
   const username = ref('')
@@ -46,7 +48,19 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #e6f0ff 0%, #f6fbff 100%);
+    background-image: v-bind(backgroundImageUrl);
+    background-size: cover;
+    background-position: center;
+    position: relative;
+  }
+  .login-page::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(255,255,255,0.35);
+    backdrop-filter: blur(1.2px);
+    pointer-events: none;
+    z-index: 0;
   }
   .login-card {
     width: 420px;
@@ -54,6 +68,8 @@
     border-radius: 16px;
     box-shadow: 0 10px 30px rgba(0,0,0,0.08);
     padding: 30px;
+    position: relative;
+    z-index: 1;
   }
   .brand {
     text-align: center;
