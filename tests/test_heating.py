@@ -17,8 +17,10 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from openpyxl import load_workbook
 
-# 设置 Django 环境
-sys.path.append(os.path.join(os.path.dirname(__file__), "backend"))
+# 设置 Django 环境 (从 tests 目录向上一级到项目根目录，再进入 backend)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.join(PROJECT_ROOT, "backend"))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))  # 添加 tests 目录以导入 generate_room_report
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "hotel_ac.settings")
 
 import django
@@ -441,10 +443,13 @@ def main():
     import config
     config.TIME_SCALE = TIME_SCALE
     
+    # 测试数据文件路径
+    test_data_file = os.path.join(os.path.dirname(__file__), "data", "test_hot.xlsx")
+    
     try:
         # 解析测试数据
         print("解析测试数据...")
-        test_data = parse_test_data("test_hot.xlsx")
+        test_data = parse_test_data(test_data_file)
         print(f"共解析 {len(test_data)} 个时间点的测试数据\n")
         
         # 打印测试数据预览
