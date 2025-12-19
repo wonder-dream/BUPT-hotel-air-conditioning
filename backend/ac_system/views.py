@@ -538,3 +538,29 @@ class MealOrderView(APIView):
                 "message": "订餐成功",
             }
         )
+    
+class AdminInitView(APIView):
+    """测试用：初始化房间温度和模式（仅DEBUG模式）"""
+
+    def post(self, request, room_id):
+        """设置房间初始温度和模式"""
+        
+        temp = request.data.get("temp", 28.0)
+        mode = request.data.get("mode", "cooling")
+        
+        # 更新调度器状态
+        from .scheduler import scheduler
+        if room_id in scheduler.service_manager.room_states:
+            scheduler.service_manager.room_states[room_id]["current_temp"] = float(temp)
+            scheduler.service_manager.room_states[room_id]["initial_temp"] = float(temp)
+            scheduler.service_manager.room_states[room_id]["mode"] = mode
+        
+        # 更新数据库
+        from .models import ACState
+        ACState.objects.filter(room_id=room_id).update(
+            current_temp=temp,
+            target_temp=temp,  # 同时设置目标温度
+            mode=mode
+        )
+        
+        return Response({"code": 200, "data": None, "message": "初始化成功"})
