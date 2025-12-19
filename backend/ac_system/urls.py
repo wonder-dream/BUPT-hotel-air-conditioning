@@ -32,4 +32,5 @@ urlpatterns = [
     # 测试日志
     path("test/log/", views.TestLogView.as_view(), name="test-log"),
     path("admin/room/<str:room_id>/init/", views.AdminInitView.as_view(), name="admin-init"),
+    path("admin/room/<str:room_id>/clear/", views.AdminClearView.as_view(), name="admin-clear"),
 ]

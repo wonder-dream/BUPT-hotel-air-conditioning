@@ -130,6 +130,12 @@ class APIClient:
         response = self.session.post(url, json={"temp": temp, "mode": mode})
         return response.json()
     
+    def clear_room(self, room_id):
+        """清空房间状态"""
+        url = f"{self.base_url}/admin/room/{room_id}/clear/"
+        response = self.session.post(url)
+        return response.json()
+
     def checkin(self, room_id, customer_info=None):
         """办理入住"""
         url = f"{self.base_url}/checkin/"
@@ -196,6 +202,15 @@ class HeatingAPITest:
         print("制热模式API测试 - 环境初始化")
         print("=" * 60)
         
+        # 0. 清空房间状态
+        print("\n0. 清空房间状态...")
+        for room_id in self.room_ids:
+            result = self.client.clear_room(room_id)
+            if result.get("code") == 200:
+                print(f"  ✅ 房间 {room_id} 状态已清空")
+            else:
+                print(f"  ⚠️  房间 {room_id} 清空失败: {result.get('message')}")
+
         # 1. 确保所有房间已入住
         print("\n1. 办理入住...")
         for room_id in self.room_ids:

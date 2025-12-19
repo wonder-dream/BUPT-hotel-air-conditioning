@@ -237,6 +237,30 @@ class CheckOutService:
             return True, "支付成功"
         except AccommodationBill.DoesNotExist:
             return False, "账单不存在"
+        
+    
+    # 强制清空所有房间的入住状态（仅管理员使用）
+    @staticmethod
+    @transaction.atomic
+    def admin_force_checkout_all():
+        orders = AccommodationOrder.objects.filter(status="active")
+        for order in orders:
+            room_id = order.room_id
+            # 创建账单
+            CheckOutService.create_bill(order)
+
+            # 更新订单状态
+            order.check_out_time = timezone.now()
+            order.status = "completed"
+            order.save()
+
+            # 更新房间状态
+            order.room.set_available()
+
+            try:
+                scheduler.checkout_room(room_id)
+            except Exception:
+                pass
 
 
 class ACService:

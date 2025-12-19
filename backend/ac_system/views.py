@@ -6,6 +6,8 @@ from decimal import Decimal
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 from datetime import datetime
 
@@ -22,7 +24,7 @@ from .serializers import (
     MealOrderRequestSerializer,
 )
 from .services import CheckInService, CheckOutService, ACService, ReportService, ReservationService, MealService
-
+from .scheduler import scheduler  # 确保这一行存在
 
 class RoomListView(APIView):
     """房间列表（包含入住信息）"""
@@ -564,3 +566,60 @@ class AdminInitView(APIView):
         )
         
         return Response({"code": 200, "data": None, "message": "初始化成功"})
+
+class AdminClearView(APIView):
+    """测试用：清除房间所有数据（仅DEBUG模式）"""
+
+    def post(self, request, room_id):
+        """清除房间所有数据"""
+        if not settings.DEBUG:
+            return Response(
+                {"code": 403, "data": None, "message": "仅DEBUG模式可用"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        from .models import (
+            AccommodationOrder, AccommodationBill, ACState, ACDetailRecord, 
+            Reservation, MealOrder, Room
+        )
+        
+        try:
+            with transaction.atomic():
+                # 1. 先删除子表记录（避免外键约束错误）
+                # AccommodationBill 通过 order 关联
+                AccommodationBill.objects.filter(order__room_id=room_id).delete()
+                
+                # 删除空调详单
+                ACDetailRecord.objects.filter(room_id=room_id).delete()
+                
+                # 删除订餐记录
+                MealOrder.objects.filter(room_id=room_id).delete()
+                
+                # 2. 再删除主订单（会级联删除 ACState 等）
+                orders = AccommodationOrder.objects.filter(room_id=room_id)
+                orders.delete()
+                
+                # 3. 删除预定记录
+                Reservation.objects.filter(room_id=room_id).delete()
+                
+                # 4. 重置房间状态
+                Room.objects.filter(room_id=room_id).update(status="available")
+                
+                # 5. 清理调度器状态
+                if room_id in scheduler.service_queue:
+                    del scheduler.service_queue[room_id]
+                if room_id in scheduler.wait_queue:
+                    del scheduler.wait_queue[room_id]
+                if room_id in scheduler.service_manager.room_states:
+                    del scheduler.service_manager.room_states[room_id]
+                
+            return Response({"code": 200, "data": None, "message": "清除成功"})
+            
+        except Exception as e:
+            print(f"清除房间数据失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response(
+                {"code": 500, "data": None, "message": f"清除失败: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
