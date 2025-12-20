@@ -11,6 +11,8 @@ from django.db import transaction
 from django.utils import timezone
 from datetime import datetime
 
+import config  # 导入配置以获取 TIME_SCALE
+
 from .models import Room, Customer, AccommodationOrder, ACState, AccommodationBill, Reservation, MealOrder
 from .serializers import (
     RoomSerializer,
@@ -363,7 +365,8 @@ class ACDetailListView(APIView):
         for idx, r in enumerate(records, start=1):
             start = r.start_time
             end = r.end_time or timezone.now()
-            duration_seconds = int((end - start).total_seconds())
+            # 实际时长 × TIME_SCALE = 系统时间（显示时间）
+            duration_seconds = int((end - start).total_seconds() * config.TIME_SCALE)
 
             energy = round(float(r.energy_consumed or 0), 2)
             cost = Decimal(str(r.cost or 0))

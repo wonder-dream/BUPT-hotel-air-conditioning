@@ -525,9 +525,23 @@ class ACScheduler:
         # 获取当前温度和累计费用/能耗
         room_state = self.service_manager.room_states.get(room_id, {})
         current_temp = room_state.get("current_temp", INITIAL_ROOM_TEMP)
+        current_status = room_state.get("status", "off")
         # 获取之前累计的费用和能耗，第二次开机时继续累加
         accumulated_cost = Decimal(str(room_state.get("cost", 0)))
         accumulated_energy = room_state.get("energy_consumed", 0)
+
+        # 只有从 "off" 状态开机才增加计数（standby 自动重启不计数）
+        if current_status == "off":
+            try:
+                order = AccommodationOrder.objects.filter(
+                    room__room_id=room_id, status="active"
+                ).first()
+                if order:
+                    order.power_on_count += 1
+                    order.save(update_fields=["power_on_count"])
+                    logger.info(f"[Scheduler] Room {room_id} power on count: {order.power_on_count}")
+            except Exception as e:
+                logger.error(f"[Scheduler] Failed to update power on count for room {room_id}: {e}")
 
         # 调度决策：检查服务队列是否已满
         if len(self.service_queue) < self.max_service_num:
@@ -955,7 +969,7 @@ class ACScheduler:
                 "mode": sobj.mode,
                 "energy_consumed": round(sobj.energy_consumed, 2),
                 "cost": float(sobj.cost),
-                "service_duration": sobj.service_duration,
+                "service_duration": sobj.service_duration * TIME_SCALE,  # 转换为系统时间
             }
         elif room_id in self.wait_queue:
             wobj = self.wait_queue[room_id]
@@ -969,7 +983,7 @@ class ACScheduler:
                 "mode": wobj.mode,
                 "energy_consumed": round(wobj.energy_consumed, 2),
                 "cost": float(wobj.cost),
-                "remaining_wait": wobj.get_remaining_wait_time(),
+                "remaining_wait": wobj.get_remaining_wait_time()
             }
         else:
             return self.service_manager.get_room_state(room_id)

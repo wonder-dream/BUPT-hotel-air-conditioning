@@ -177,9 +177,9 @@ const fanSpeedText = computed(() => {
 
 const tempRange = computed(() => {
   if (acState.value.mode === 'cooling') {
-    return { min: 18, max: 25 }
+    return { min: 18, max: 28 }  // 制冷温控范围：18-28
   } else {
-    return { min: 25, max: 30 }
+    return { min: 18, max: 25 }  // 制热温控范围：18-25
   }
 })
 

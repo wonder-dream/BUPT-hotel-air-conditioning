@@ -147,7 +147,12 @@ class CheckOutService:
 
     @staticmethod
     def calculate_room_fee(order: AccommodationOrder) -> Decimal:
-        return order.room_fee
+        """根据空调开机次数计算房费（每次开机算一天）"""
+        # 使用订单中记录的开机次数
+        power_on_count = order.power_on_count
+        # 至少算1天
+        days = max(1, power_on_count)
+        return order.room.price_per_day * days
 
     @staticmethod
     def calculate_ac_fee(room_id: str, order: AccommodationOrder) -> Decimal:

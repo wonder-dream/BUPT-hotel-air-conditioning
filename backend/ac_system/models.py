@@ -110,6 +110,7 @@ class AccommodationOrder(models.Model):
         max_digits=10, decimal_places=2, default=0, verbose_name="押金"
     )
     deposit_paid = models.BooleanField(default=False, verbose_name="押金已收取")
+    power_on_count = models.IntegerField(default=0, verbose_name="空调开机次数")
 
     class Meta:
         db_table = "accommodation_order"

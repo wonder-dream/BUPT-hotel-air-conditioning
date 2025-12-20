@@ -21,24 +21,24 @@ def init_rooms():
         {
             "room_id": "301",
             "room_type": "standard",
-            "price_per_day": ROOM_PRICE["standard"],
+            "price_per_day": ROOM_PRICE["301"],
         },
         {
             "room_id": "302",
             "room_type": "standard",
-            "price_per_day": ROOM_PRICE["standard"],
+            "price_per_day": ROOM_PRICE["302"],
         },
         {
             "room_id": "303",
             "room_type": "deluxe",
-            "price_per_day": ROOM_PRICE["deluxe"],
+            "price_per_day": ROOM_PRICE["303"],
         },
         {
             "room_id": "304",
             "room_type": "deluxe",
-            "price_per_day": ROOM_PRICE["deluxe"],
+            "price_per_day": ROOM_PRICE["304"],
         },
-        {"room_id": "305", "room_type": "suite", "price_per_day": ROOM_PRICE["suite"]},
+        {"room_id": "305", "room_type": "suite", "price_per_day": ROOM_PRICE["305"]},
     ]
 
     for room_data in rooms_data:
