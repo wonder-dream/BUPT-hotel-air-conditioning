@@ -494,55 +494,12 @@ class MealOrderView(APIView):
     def post(self, request):
         serializer = MealOrderRequestSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(
-                {"code": 400, "data": None, "message": serializer.errors},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+            return Response({"code": 400, "data": None, "message": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
         data = serializer.validated_data
-        room_id = data["room_id"]
-
-        success, msg, order = CheckOutService.get_active_order(room_id)
-        if not success:
-            return Response(
-                {"code": 400, "data": None, "message": msg},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        items = data["items"]
-        try:
-            total_fee = Decimal(
-                str(
-                    sum(
-                        (Decimal(str(i.get("price", 0))) * int(i.get("count", 1)))
-                        for i in items
-                    )
-                )
-            )
-        except Exception:
-            return Response(
-                {"code": 400, "data": None, "message": "菜品价格格式错误"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        meal = MealOrder.objects.create(
-            order=order,
-            room=order.room,
-            items=str(items),
-            fee=total_fee,
-        )
-
-        return Response(
-            {
-                "code": 200,
-                "data": {
-                    "meal_id": meal.meal_id,
-                    "room_id": room_id,
-                    "fee": float(meal.fee),
-                },
-                "message": "订餐成功",
-            }
-        )
+        success, msg, payload = MealService.create_meal_order(data["room_id"], data["items"])
+        if success:
+            return Response({"code": 200, "data": payload, "message": msg})
+        return Response({"code": 400, "data": None, "message": msg}, status=status.HTTP_400_BAD_REQUEST)
     
 class AdminInitView(APIView):
     """测试用：初始化房间温度和模式（仅DEBUG模式）"""
