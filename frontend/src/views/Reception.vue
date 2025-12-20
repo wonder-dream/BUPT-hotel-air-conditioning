@@ -515,7 +515,46 @@ const handleLogout = () => {
 
 const printDetails = () => {
   try {
-    const html = printArea.value ? printArea.value.innerHTML : ''
+    const summaryHtml = printArea.value ? printArea.value.innerHTML : ''
+    const rows = acDetails.value?.details || []
+    const tableHtml = `
+      <table>
+        <thead>
+          <tr>
+            <th>序号</th>
+            <th>开始时间</th>
+            <th>结束时间</th>
+            <th>时长</th>
+            <th>温度</th>
+            <th>模式/风速</th>
+            <th>耗电(度)</th>
+            <th>费用</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => {
+            const endTime = r.end_time || new Date().toLocaleString('zh-CN')
+            const duration = r.duration_seconds < 60 ? `${r.duration_seconds}秒` : `${(r.duration_seconds/60).toFixed(1)}分钟`
+            const tempText = `${Number(r.start_temp || 0).toFixed(2)}°C → ${r.end_temp == null ? '--' : Number(r.end_temp).toFixed(2)}°C / 目标 ${Number(r.target_temp || 0).toFixed(2)}°C`
+            const modeText = `${r.mode === 'cooling' ? '制冷' : '制热'} / ${r.fan_speed === 'low' ? '低' : (r.fan_speed === 'high' ? '高' : '中')}`
+            const energyText = Number(r.energy || 0).toFixed(2)
+            const costText = Number(r.cost || 0).toFixed(2)
+            return `
+              <tr>
+                <td>${r.seq ?? ''}</td>
+                <td>${r.start_time ?? ''}</td>
+                <td>${endTime}</td>
+                <td>${duration}</td>
+                <td>${tempText}</td>
+                <td>${modeText}</td>
+                <td>${energyText}</td>
+                <td>¥${costText}</td>
+              </tr>
+            `
+          }).join('')}
+        </tbody>
+      </table>
+    `
     const w = window.open('', '_blank', 'width=900,height=600')
     if (!w) return
     w.document.write(`
@@ -538,7 +577,8 @@ const printDetails = () => {
           <div class="summary">
             <div>调度次数: ${acDetails.value?.summary?.total_records ?? 0}</div>
           </div>
-          ${html}
+          ${summaryHtml}
+          ${tableHtml}
         </body>
       </html>
     `)
