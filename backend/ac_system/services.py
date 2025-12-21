@@ -408,6 +408,56 @@ class ReportService:
 
         return list(records)
 
+    @staticmethod
+    def generate_manager_report(range_type: str, date: datetime.date) -> dict:
+        """生成经理详细报表"""
+        if range_type == "daily":
+            start = datetime.combine(date, datetime.min.time())
+            end = datetime.combine(date, datetime.max.time())
+        elif range_type == "weekly":
+            start = date - timedelta(days=date.weekday())
+            end = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        elif range_type == "monthly":
+            start = date.replace(day=1)
+            end = (start + timedelta(days=31)).replace(day=1) - timedelta(seconds=1)
+        else:
+            start = datetime.combine(date, datetime.min.time())
+            end = datetime.combine(date, datetime.max.time())
+
+        bills = AccommodationBill.objects.filter(created_at__range=(start, end))
+
+        total_room_income = sum(b.room_fee for b in bills)
+        total_ac_income = sum(b.ac_fee for b in bills)
+        total_meal_income = sum(b.meal_fee for b in bills)
+        total_deposit = sum(b.deposit_amount for b in bills)
+        net_income = total_room_income + total_ac_income + total_meal_income - total_deposit
+
+        bills_data = []
+        for bill in bills:
+            bills_data.append({
+                "room_number": bill.order.room_id,
+                "checkin_time": bill.order.check_in_time.strftime("%Y-%m-%d %H:%M"),
+                "checkout_time": bill.order.check_out_time.strftime("%Y-%m-%d %H:%M") if bill.order.check_out_time else None,
+                "room_fee": float(bill.room_fee),
+                "ac_fee": float(bill.ac_fee),
+                "meal_fee": float(bill.meal_fee),
+                "deposit_amount": float(bill.deposit_amount),
+                "total_amount": float(bill.total_fee),
+                "is_paid": bill.is_paid,
+                "created_at": bill.created_at.isoformat(),
+            })
+
+        return {
+            "summary": {
+                "total_room_income": float(total_room_income),
+                "total_ac_income": float(total_ac_income),
+                "total_meal_income": float(total_meal_income),
+                "total_deposit": float(total_deposit),
+                "net_income": float(net_income),
+            },
+            "bills": bills_data,
+        }
+
 
 class ReservationService:
     """预定服务"""

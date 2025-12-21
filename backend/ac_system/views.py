@@ -13,7 +13,15 @@ from datetime import datetime
 
 import config  # 导入配置以获取 TIME_SCALE
 
-from .models import Room, Customer, AccommodationOrder, ACState, AccommodationBill, Reservation, MealOrder
+from .models import (
+    Room,
+    Customer,
+    AccommodationOrder,
+    ACState,
+    AccommodationBill,
+    Reservation,
+    MealOrder,
+)
 from .serializers import (
     RoomSerializer,
     AccommodationOrderSerializer,
@@ -25,8 +33,16 @@ from .serializers import (
     ReservationRequestSerializer,
     MealOrderRequestSerializer,
 )
-from .services import CheckInService, CheckOutService, ACService, ReportService, ReservationService, MealService
+from .services import (
+    CheckInService,
+    CheckOutService,
+    ACService,
+    ReportService,
+    ReservationService,
+    MealService,
+)
 from .scheduler import scheduler  # 确保这一行存在
+
 
 class RoomListView(APIView):
     """房间列表（包含入住信息）"""
@@ -227,7 +243,11 @@ class BillDetailView(APIView):
 
         room_fee = CheckOutService.calculate_room_fee(order)
         from .models import ACDetailRecord
-        ac_fee = sum(Decimal(str(r.cost or 0)) for r in ACDetailRecord.objects.filter(order=order))
+
+        ac_fee = sum(
+            Decimal(str(r.cost or 0))
+            for r in ACDetailRecord.objects.filter(order=order)
+        )
         meal_fee = sum(m.fee for m in MealOrder.objects.filter(order=order))
         deposit_amount = order.deposit_amount or 0
 
@@ -242,7 +262,9 @@ class BillDetailView(APIView):
                     "ac_fee": round(float(ac_fee), 2),
                     "meal_fee": round(float(meal_fee), 2),
                     "deposit_amount": round(float(deposit_amount), 2),
-                    "total_fee": round(float(room_fee + ac_fee + meal_fee - deposit_amount), 2),
+                    "total_fee": round(
+                        float(room_fee + ac_fee + meal_fee - deposit_amount), 2
+                    ),
                 },
                 "message": "success",
             }
@@ -255,12 +277,20 @@ class MealOrderView(APIView):
     def post(self, request):
         serializer = MealOrderRequestSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response({"code": 400, "data": None, "message": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"code": 400, "data": None, "message": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         data = serializer.validated_data
-        success, msg, payload = MealService.create_meal_order(data["room_id"], data["items"])
+        success, msg, payload = MealService.create_meal_order(
+            data["room_id"], data["items"]
+        )
         if success:
             return Response({"code": 200, "data": payload, "message": msg})
-        return Response({"code": 400, "data": None, "message": msg}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"code": 400, "data": None, "message": msg},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 class MealOrderListView(APIView):
@@ -342,6 +372,7 @@ class ACMonitorView(APIView):
         states = ACService.get_all_states()
         return Response({"code": 200, "data": states, "message": "success"})
 
+
 class ACDetailListView(APIView):
     """获取当前入住的空调运行详单"""
 
@@ -382,7 +413,9 @@ class ACDetailListView(APIView):
                     "end_time": end.strftime("%Y-%m-%d %H:%M:%S") if end else None,
                     "duration_seconds": duration_seconds,
                     "start_temp": round(float(r.start_temp), 2),
-                    "end_temp": None if r.end_temp is None else round(float(r.end_temp), 2),
+                    "end_temp": (
+                        None if r.end_temp is None else round(float(r.end_temp), 2)
+                    ),
                     "target_temp": round(float(r.target_temp), 2),
                     "fan_speed": r.fan_speed,
                     "mode": r.mode,
@@ -442,10 +475,13 @@ class ReportView(APIView):
 
         return Response({"code": 200, "data": report, "message": "success"})
 
+
 class TestLogView(APIView):
     """读取测试脚本输出日志"""
+
     def get(self, request):
         import os
+
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         log_path = os.path.join(base_dir, "..", "monitor_output.log")
         lines = []
@@ -457,9 +493,18 @@ class TestLogView(APIView):
                     if len(content) > 100000:
                         content = content[-100000:]
                     lines = content.splitlines()[-500:]
-            return Response({"code": 200, "data": {"lines": lines, "path": log_path}, "message": "success"})
+            return Response(
+                {
+                    "code": 200,
+                    "data": {"lines": lines, "path": log_path},
+                    "message": "success",
+                }
+            )
         except Exception as e:
-            return Response({"code": 500, "data": {"lines": []}, "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"code": 500, "data": {"lines": []}, "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class ReservationView(APIView):
@@ -478,9 +523,7 @@ class ReservationView(APIView):
             data["name"], data["phone"], data["room_id"]
         )
         if success:
-            return Response(
-                {"code": 200, "data": payload, "message": msg}
-            )
+            return Response({"code": 200, "data": payload, "message": msg})
         else:
             return Response(
                 {"code": 400, "data": None, "message": msg},
@@ -494,38 +537,48 @@ class MealOrderView(APIView):
     def post(self, request):
         serializer = MealOrderRequestSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response({"code": 400, "data": None, "message": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"code": 400, "data": None, "message": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         data = serializer.validated_data
-        success, msg, payload = MealService.create_meal_order(data["room_id"], data["items"])
+        success, msg, payload = MealService.create_meal_order(
+            data["room_id"], data["items"]
+        )
         if success:
             return Response({"code": 200, "data": payload, "message": msg})
-        return Response({"code": 400, "data": None, "message": msg}, status=status.HTTP_400_BAD_REQUEST)
-    
+        return Response(
+            {"code": 400, "data": None, "message": msg},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
 class AdminInitView(APIView):
     """测试用：初始化房间温度和模式（仅DEBUG模式）"""
 
     def post(self, request, room_id):
         """设置房间初始温度和模式"""
-        
+
         temp = request.data.get("temp", 28.0)
         mode = request.data.get("mode", "cooling")
-        
+
         # 更新调度器状态
         from .scheduler import scheduler
+
         if room_id in scheduler.service_manager.room_states:
             scheduler.service_manager.room_states[room_id]["current_temp"] = float(temp)
             scheduler.service_manager.room_states[room_id]["initial_temp"] = float(temp)
             scheduler.service_manager.room_states[room_id]["mode"] = mode
-        
+
         # 更新数据库
         from .models import ACState
+
         ACState.objects.filter(room_id=room_id).update(
-            current_temp=temp,
-            target_temp=temp,  # 同时设置目标温度
-            mode=mode
+            current_temp=temp, target_temp=temp, mode=mode  # 同时设置目标温度
         )
-        
+
         return Response({"code": 200, "data": None, "message": "初始化成功"})
+
 
 class AdminClearView(APIView):
     """测试用：清除房间所有数据（仅DEBUG模式）"""
@@ -534,37 +587,42 @@ class AdminClearView(APIView):
         """清除房间所有数据"""
         if not settings.DEBUG:
             return Response(
-                {"code": 403, "data": None, "message": "仅DEBUG模式可用"}, 
-                status=status.HTTP_403_FORBIDDEN
+                {"code": 403, "data": None, "message": "仅DEBUG模式可用"},
+                status=status.HTTP_403_FORBIDDEN,
             )
-        
+
         from .models import (
-            AccommodationOrder, AccommodationBill, ACState, ACDetailRecord, 
-            Reservation, MealOrder, Room
+            AccommodationOrder,
+            AccommodationBill,
+            ACState,
+            ACDetailRecord,
+            Reservation,
+            MealOrder,
+            Room,
         )
-        
+
         try:
             with transaction.atomic():
                 # 1. 先删除子表记录（避免外键约束错误）
                 # AccommodationBill 通过 order 关联
                 AccommodationBill.objects.filter(order__room_id=room_id).delete()
-                
+
                 # 删除空调详单
                 ACDetailRecord.objects.filter(room_id=room_id).delete()
-                
+
                 # 删除订餐记录
                 MealOrder.objects.filter(room_id=room_id).delete()
-                
+
                 # 2. 再删除主订单（会级联删除 ACState 等）
                 orders = AccommodationOrder.objects.filter(room_id=room_id)
                 orders.delete()
-                
+
                 # 3. 删除预定记录
                 Reservation.objects.filter(room_id=room_id).delete()
-                
+
                 # 4. 重置房间状态
                 Room.objects.filter(room_id=room_id).update(status="available")
-                
+
                 # 5. 清理调度器状态
                 if room_id in scheduler.service_queue:
                     del scheduler.service_queue[room_id]
@@ -572,14 +630,34 @@ class AdminClearView(APIView):
                     del scheduler.wait_queue[room_id]
                 if room_id in scheduler.service_manager.room_states:
                     del scheduler.service_manager.room_states[room_id]
-                
+
             return Response({"code": 200, "data": None, "message": "清除成功"})
-            
+
         except Exception as e:
             print(f"清除房间数据失败: {e}")
             import traceback
+
             traceback.print_exc()
             return Response(
                 {"code": 500, "data": None, "message": f"清除失败: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class ManagerReportView(APIView):
+    """经理详细报表"""
+
+    def get(self, request):
+        range_type = request.query_params.get("range", "daily")
+        date_str = request.query_params.get("date", None)
+
+        if date_str:
+            try:
+                date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            except ValueError:
+                date = timezone.now().date()
+        else:
+            date = timezone.now().date()
+
+        report = ReportService.generate_manager_report(range_type, date)
+        return Response({"code": 200, "data": report, "message": "success"})

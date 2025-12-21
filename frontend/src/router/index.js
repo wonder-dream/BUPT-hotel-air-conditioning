@@ -65,6 +65,12 @@ const routes = [
     name: 'Report',
     component: () => import('../views/Report.vue'),
     meta: { title: '统计报表' }
+  },
+  {
+    path: '/manager-report',
+    name: 'ManagerReport',
+    component: () => import('../views/ManagerReport.vue'),
+    meta: { title: '经理详细报表', requireManager: true }
   }
 ]
 
@@ -80,8 +86,9 @@ router.beforeEach((to, from, next) => {
     next({ path: '/login' })
     return
   }
-  if (to.path === '/login' && loggedIn) {
-    next({ path: '/reception' })
+  const managerLoggedIn = localStorage.getItem('managerLogin') === 'true'
+  if (to.meta && to.meta.requireManager && !managerLoggedIn) {
+    next({ path: '/login' })
     return
   }
   next()

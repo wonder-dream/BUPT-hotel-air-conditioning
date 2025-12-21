@@ -78,5 +78,10 @@ export default {
     const params = { type }
     if (date) params.date = date
     return api.get('/report/', { params })
+  },
+  getManagerReport(range = 'daily', date = null) {
+    const params = { range }
+    if (date) params.date = date
+    return api.get('/manager-report/', { params })
   }
 }
