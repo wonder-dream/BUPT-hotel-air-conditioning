@@ -1,13 +1,13 @@
 # 一键部署脚本 for BUPT Hotel Air Conditioning System
 # 适用于CentOS/RHEL Linux服务器 (使用yum包管理器)
 # 使用前请确保：
-# 1. 项目已上传到服务器 /home/ec2-user/BUPT-hotel-air-conditioning (AWS默认) 或 /home/youruser/BUPT-hotel-air-conditioning
+# 1. 项目已上传到服务器 /usr/BUPT-hotel-air-conditioning
 # 2. 已配置数据库连接（PostgreSQL/MySQL）
 # 3. 已设置环境变量（如SECRET_KEY）
 
 set -e  # 遇到错误立即退出
 
-PROJECT_DIR="/home/ec2-user/BUPT-hotel-air-conditioning"  # 修改为你的路径
+PROJECT_DIR="/usr/BUPT-hotel-air-conditioning"  # 修改为你的路径
 BACKEND_DIR="$PROJECT_DIR/backend"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 VENV_DIR="$BACKEND_DIR/venv"
