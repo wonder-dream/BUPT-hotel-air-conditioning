@@ -55,23 +55,23 @@ echo "安装和配置nginx..."
 sudo apt install -y nginx
 
 # 创建nginx配置
-sudo tee /etc/nginx/sites-available/hotel <<-'EOF'
+sudo tee /etc/nginx/sites-available/hotel <<EOF
 server {
     listen 80;
     server_name _;
-    root /home/ubuntu/BUPT-hotel-air-conditioning/frontend/dist;
+    root $HOME/BUPT-hotel-air-conditioning/frontend/dist;
     index index.html index.htm;
 
     location / {
-        try_files $uri $uri/ /index.html;
+        try_files \$uri \$uri/ /index.html;
     }
 
     location /api/ {
         proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
     # 静态文件缓存
