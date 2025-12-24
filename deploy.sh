@@ -10,28 +10,42 @@ echo "安装必要工具..."
 sudo apt install -y curl wget build-essential software-properties-common
 
 echo "安装Python 3.10..."
-# 添加deadsnakes PPA以获取Python 3.10
-sudo add-apt-repository ppa:deadsnakes/ppa -y
-sudo apt update
-sudo apt install -y python3.10 python3.10-venv python3.10-pip
+if ! command -v python3.10 &> /dev/null; then
+    # 添加deadsnakes PPA以获取Python 3.10
+    sudo add-apt-repository ppa:deadsnakes/ppa -y
+    sudo apt update
+    sudo apt install -y python3.10 python3.10-venv python3.10-pip
 
-# 设置python3.10为默认（可选）
-sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
-sudo update-alternatives --set python3 /usr/bin/python3.10
+    # 设置python3.10为默认（可选）
+    sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+    sudo update-alternatives --set python3 /usr/bin/python3.10
+else
+    echo "Python 3.10 已安装，跳过"
+fi
 
 echo "配置pip使用国内源..."
-mkdir -p ~/.pip
-tee ~/.pip/pip.conf <<-'EOF'
+if [ ! -f ~/.pip/pip.conf ]; then
+    mkdir -p ~/.pip
+    tee ~/.pip/pip.conf <<-'EOF'
 [global]
 index-url = https://pypi.tuna.tsinghua.edu.cn/simple
 [install]
 trusted-host = pypi.tuna.tsinghua.edu.cn
 EOF
+else
+    echo "pip源已配置，跳过"
+fi
 
 echo "安装后端依赖..."
 cd backend
-python3 -m pip install --upgrade pip
-python3 -m pip install -r requirements.txt
+if [ ! -d ".venv" ]; then
+    python3 -m venv .venv
+    source .venv/bin/activate
+    python3 -m pip install --upgrade pip
+    python3 -m pip install -r requirements.txt
+else
+    echo "后端依赖已安装，跳过"
+fi
 
 echo "运行数据库迁移..."
 python3 manage.py migrate
@@ -42,17 +56,29 @@ BACKEND_PID=$!
 echo "后端PID: $BACKEND_PID"
 
 echo "安装Node.js..."
-# 使用NodeSource仓库安装最新LTS版本
-curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
-sudo apt-get install -y nodejs
+if ! command -v node &> /dev/null; then
+    # 使用NodeSource仓库安装最新LTS版本
+    curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+else
+    echo "Node.js 已安装，跳过"
+fi
 
 echo "构建前端..."
 cd ../frontend
-npm install
-npm run build
+if [ ! -d "node_modules" ]; then
+    npm install
+    npm run build
+else
+    echo "前端已构建，跳过"
+fi
 
 echo "安装和配置nginx..."
-sudo apt install -y nginx
+if ! command -v nginx &> /dev/null; then
+    sudo apt install -y nginx
+else
+    echo "nginx 已安装，跳过"
+fi
 
 # 创建nginx配置
 sudo tee /etc/nginx/sites-available/hotel <<EOF
