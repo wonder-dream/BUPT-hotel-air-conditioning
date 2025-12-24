@@ -19,6 +19,15 @@ sudo apt install -y python3.10 python3.10-venv python3.10-pip
 sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
 sudo update-alternatives --set python3 /usr/bin/python3.10
 
+echo "配置pip使用国内源..."
+mkdir -p ~/.pip
+tee ~/.pip/pip.conf <<-'EOF'
+[global]
+index-url = https://pypi.tuna.tsinghua.edu.cn/simple
+[install]
+trusted-host = pypi.tuna.tsinghua.edu.cn
+EOF
+
 echo "安装后端依赖..."
 cd backend
 python3 -m pip install --upgrade pip
@@ -90,8 +99,8 @@ sudo ufw allow 8000/tcp
 sudo ufw --force enable
 
 echo "部署完成！"
-echo "前端访问: http://your-server-ip"
-echo "后端API: http://your-server-ip:8000"
+echo "前端访问: 8.130.29.228"
+echo "后端API: 8.130.29.228:8000"
 echo "后端进程PID: $BACKEND_PID"
 echo ""
 echo "管理命令："
