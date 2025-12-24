@@ -33,7 +33,43 @@ else
 fi
 
 # 安装基础包
-sudo yum install -y python3 python3-pip nodejs npm nginx postgresql-server postgresql-contrib
+# 首先确保python3可用
+if ! command -v python3 &> /dev/null; then
+    echo "安装Python3..."
+    sudo yum install -y python3 python3-pip python3-devel
+fi
+
+sudo yum install -y nodejs npm nginx postgresql-server postgresql-contrib
+
+# 升级Python到3.8+（如果需要）
+if python3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)"; then
+    echo "Python版本已满足要求"
+else
+    echo "升级Python到3.8..."
+    # 启用IUS仓库（如果可用）
+    sudo yum install -y https://repo.ius.io/ius-release-el7.rpm 2>/dev/null || true
+    
+    # 尝试安装Python 3.8
+    sudo yum install -y python38 python38-pip python38-devel || {
+        echo "使用源码安装Python 3.8..."
+        # 源码安装Python 3.8
+        sudo yum install -y gcc openssl-devel bzip2-devel libffi-devel zlib-devel
+        cd /tmp
+        wget https://www.python.org/ftp/python/3.8.10/Python-3.8.10.tgz
+        tar xzf Python-3.8.10.tgz
+        cd Python-3.8.10
+        ./configure --enable-optimizations
+        make -j$(nproc)
+        sudo make altinstall
+        # 创建python3.8命令
+        sudo ln -sf /usr/local/bin/python3.8 /usr/bin/python3.8
+        sudo ln -sf /usr/local/bin/pip3.8 /usr/bin/pip3.8
+    }
+    
+    # 设置python3命令指向新版本
+    sudo alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1
+    sudo alternatives --set python3 /usr/bin/python3.8
+fi
 
 # 如果Node.js版本太旧，尝试安装新版本
 if ! command -v node &> /dev/null || [[ $(node --version | sed 's/v//' | cut -d. -f1) -lt 14 ]]; then
@@ -52,14 +88,17 @@ echo "2. 设置后端..."
 cd $BACKEND_DIR
 
 # 创建虚拟环境
+echo "创建Python虚拟环境..."
 python3 -m venv venv
 source venv/bin/activate
 
-# 更新pip
-pip install --upgrade pip
+# 更新pip到最新版本
+echo "更新pip..."
+pip3 install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 安装Python依赖
-pip install -r requirements.txt
+echo "安装Python依赖包..."
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 运行数据库迁移
 python manage.py migrate
