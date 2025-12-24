@@ -18,19 +18,25 @@ echo "=== 开始部署 BUPT 酒店空调管理系统 ==="
 echo "1. 更新系统并安装依赖..."
 sudo yum update -y
 
-# 检查并安装EPEL（阿里云镜像可能已包含）
+# 处理阿里云EPEL冲突
+if rpm -q epel-aliyuncs-release &>/dev/null; then
+    echo "移除阿里云EPEL包..."
+    sudo yum remove -y epel-aliyuncs-release
+fi
+
+# 检查并安装标准EPEL
 if ! yum repolist | grep -q epel; then
-    echo "安装EPEL仓库..."
+    echo "安装标准EPEL仓库..."
     sudo yum install -y epel-release
 else
-    echo "EPEL仓库已启用，跳过安装"
+    echo "EPEL仓库已启用"
 fi
 
 # 安装基础包
 sudo yum install -y python3 python3-pip nodejs npm nginx postgresql-server postgresql-contrib
 
 # 如果Node.js版本太旧，尝试安装新版本
-if ! command -v node &> /dev/null || [[ $(node --version | sed 's/v//') < "14" ]]; then
+if ! command -v node &> /dev/null || [[ $(node --version | sed 's/v//' | cut -d. -f1) -lt 14 ]]; then
     echo "Node.js版本太旧，尝试安装新版本..."
     curl -fsSL https://rpm.nodesource.com/setup_16.x | sudo bash -
     sudo yum install -y nodejs
