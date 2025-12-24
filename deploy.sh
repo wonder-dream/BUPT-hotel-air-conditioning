@@ -41,35 +41,22 @@ fi
 
 sudo yum install -y nodejs npm nginx postgresql-server postgresql-contrib
 
-# 升级Python到3.8+（如果需要）
-if python3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)"; then
-    echo "Python版本已满足要求"
-else
-    echo "升级Python到3.8..."
-    # 启用IUS仓库（如果可用）
-    sudo yum install -y https://repo.ius.io/ius-release-el7.rpm 2>/dev/null || true
-    
-    # 尝试安装Python 3.8
-    sudo yum install -y python38 python38-pip python38-devel || {
-        echo "使用源码安装Python 3.8..."
-        # 源码安装Python 3.8
-        sudo yum install -y gcc openssl-devel bzip2-devel libffi-devel zlib-devel
-        cd /tmp
-        wget https://www.python.org/ftp/python/3.8.10/Python-3.8.10.tgz
-        tar xzf Python-3.8.10.tgz
-        cd Python-3.8.10
-        ./configure --enable-optimizations
-        make -j$(nproc)
-        sudo make altinstall
-        # 创建python3.8命令
-        sudo ln -sf /usr/local/bin/python3.8 /usr/bin/python3.8
-        sudo ln -sf /usr/local/bin/pip3.8 /usr/bin/pip3.8
-    }
-    
-    # 设置python3命令指向新版本
-    sudo alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1
-    sudo alternatives --set python3 /usr/bin/python3.8
+# 安装Python 3.8（强制升级）
+echo "安装Python 3.8..."
+
+# 检查是否已安装python38，如果没有则安装
+if ! command -v python3.8 &> /dev/null; then
+    echo "安装python38..."
+    sudo yum install -y python38 python38-pip python38-devel
 fi
+
+# 设置python3命令指向python3.8
+echo "设置python3命令指向python3.8..."
+sudo alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1
+sudo alternatives --set python3 /usr/bin/python3.8
+
+# 验证版本
+python3 --version
 
 # 如果Node.js版本太旧，尝试安装新版本
 if ! command -v node &> /dev/null || [[ $(node --version | sed 's/v//' | cut -d. -f1) -lt 14 ]]; then
